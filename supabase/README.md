@@ -20,7 +20,7 @@
 
 ## Book Catalog
 
-When Supabase is configured, the app loads book metadata from `public.books`, adaptations from `public.book_adaptations`, and shelf/pillar definitions from `public.subcategories` and `public.pillars`; the bundled data in `lib/books.ts` remains a local/offline fallback if Supabase is unavailable. The catalog migration adds 56 titles for 80 total, with 10 titles in each of the eight shelves. Add future catalog and adaptation records through migrations so configured app clients share one source.
+When Supabase is configured, the app loads book metadata from `public.books`, category labels from `public.pillars`, and adaptations from `public.book_adaptations`; the bundled data in `lib/books.ts` remains a local/offline fallback if Supabase is unavailable. The catalog contains 80 records: 30 active Screen books and 50 archived records retained for existing user shelves and history. Add future books and adaptations through migrations so configured clients share one source.
 
 ## TMDb Adaptation Matching
 

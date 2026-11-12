@@ -1,31 +1,23 @@
-# 💬📖 BooQuip — High-Impact Book Discovery & Social Ghostwriter
+# 💬📖 BooQuip — Book Discovery & Quip
 
-> **Tap a pillar. Swipe or key in 4 directions. Forge sharper social takes.**
+> **Find a book. Shape a thought.**
 
-**BooQuip** eliminates bedtime scrolling and decision paralysis through frictionless, high-impact book discovery across **iOS, Android, and Web**. Instead of endless text lists or spinning wheels, users tap one of **3 Core Impact Buttons** (or **✨ Surprise Me**) to reveal **one single curated book card**. Users triage each book in seconds using a **4-Way Gestural Swipe** (or desktop arrow keys)—and turn completed reads into high-status social media posts via AI.
+**BooQuip** is a cross-platform reading app with a library hub and two destinations: **Book** for discovering and managing a reading list, and **Quip** for drafting book-informed replies to current conversations.
 
 ---
 
-## 🎯 Core Product Architecture
+## Product Experience
 
-### 🔘 The 3 Core Buttons + Surprise Me (Zero-Friction Discovery)
-Users tap a single pill at the top of the screen based on their immediate energy to draw one high-impact book at a time:
+### Your Library
+The landing page keeps the **Your Library** banner and presents two peer sections, **Book** and **Quip**. Neither section is selected by default.
 
-1. **🎬 Screen** *(Visual Impact)*
-   * Rotates internally across *The Launchpad* (adaptations premiering in the next 12 months), *Oscar Gold Standard* (award-winning films), and *Streaming Universe* (multi-season TV epics).
-2. **🏛️ Civilization** *(Historical Impact)*
-   * Rotates internally across *Blueprints of Power* (political/social treatises), *Scientific Paradigm Shifts*, and *The Forbidden Shelves* (historically banned texts).
-3. **📱 Digital** *(Cultural Immediacy)*
-   * Rotates internally across *Essays & Online Culture* and *Algorithmic Blockbusters*.
-4. **✨ Surprise Me** *(Serendipity Mode)*
-   * Draws a single high-impact book randomly across all three pillars.
+### Book
+Book discovery has three top-level categories: **Screen**, **Charts**, and **Classics**. Search and Surprise Me find active catalog titles; book cards retain the three actions **Save to TBR**, **Already read**, and **Snooze 90 days**. The category wheel and nested shelves are not used.
 
-### 🕹️ The 4-Way Triage (Mobile Touch + Web Keyboard)
-Each revealed book card occupies center stage and is sorted with one thumb gesture on mobile or arrow key on web:
-* **▶️ Swipe Right / `ArrowRight`:** Lock into **To-Be-Read (TBR)** queue.
-* **🔼 Swipe Up / `ArrowUp`:** Mark as **Already Read** (updates user's *Humanity Quotient* & *Taste Constellation*).
-* **◀️ Swipe Left / `ArrowLeft`:** **Deep Freeze** (snooze book for 90 days).
-* **🔽 Swipe Down / `ArrowDown`:** **Next / Recycle** (drop book back into the discovery pool and deal the next card).
+Screen books remain active. Former Civilization/Digital titles are archived rather than deleted, preserving existing TBR, Read, and snooze records while removing them from new discovery. Charts and Classics start empty for future curation.
+
+### Quip
+Quip opens the trend-reply workflow from the Read shelf. Readers can use one Read book or their entire Read shelf as context, paste a post or topic, edit the generated reply, and copy it. Nothing is published automatically.
 
 ### 🤖 BooQuip AI Companion
 * **Intellectual On-Ramp:** Translates dense historical classics into 30-second modern analogies right on the reveal card.
@@ -42,7 +34,6 @@ Each revealed book card occupies center stage and is sorted with one thumb gestu
 
 BooQuip syncs user shelves, swipe states, and *Humanity Quotient* metrics seamlessly across iOS, Android, and Web (`booquip.app`) using **Supabase Auth**:
 
-1. **Frictionless Onboarding ("Try Before You Sign Up"):**
    * Launches immediately using **Supabase Anonymous Sign-Ins** so new users can tap and swipe cards with zero login friction.
    * Prompts account creation after **3 Right Swipes (TBR)** or upon opening the **AI Social Studio**, automatically merging guest swipes into the permanent account.
 2. **Sign-In Providers:**
@@ -61,14 +52,12 @@ BooQuip syncs user shelves, swipe states, and *Humanity Quotient* metrics seamle
 ## 🎨 Brand Identity & Visual System
 
 * **Brand Name:** BooQuip
-* **App Store Subtitle:** *High-Impact Books & Smart Takes*
 * **Primary Mark:** Mint speech-bubble open book icon (`#3ED19A`) paired with deep slate charcoal (`#1E2E30`) and crisp off-white (`#F6F8F8`).
 
 ---
 
 ## 🛠️ Technical Stack (Windows + Cloud Workflow)
 
-* **IDE & Cloud Workspace:** GitHub Codespaces (VS Code + GitHub Copilot)
 * **Universal Frontend (iOS, Android, & Web):** React Native + Expo + Expo Router (TypeScript)
 * **Live Mobile Testing:** Expo Go (iOS/Android via Wi-Fi Tunnel)
 * **Web Hosting & CDN:** Vercel (Free Tier — auto-deploys static Expo Web builds from GitHub)
@@ -82,7 +71,6 @@ BooQuip syncs user shelves, swipe states, and *Humanity Quotient* metrics seamle
 ---
 
 ## 📂 Repository Structure
-
 ```text
 ├── app/ # Expo Router universal screens (Landing, Discover, Shelf, AI Studio, Profile, Auth)
 ├── assets/ # Brand marks (mint speech-bubble book icon, splash screens, favicons)
@@ -97,7 +85,6 @@ BooQuip syncs user shelves, swipe states, and *Humanity Quotient* metrics seamle
 
 ---
 
-## 🚀 Getting Started in GitHub Codespaces
 
 ### 1. Prerequisites
 * A free [Supabase](https://supabase.com) account (with Anonymous Sign-Ins, Apple, Google, and Email enabled under Authentication)
@@ -128,7 +115,6 @@ npx expo start --tunnel
 # Option B: Start Web Dev Server (Preview in Codespaces browser port 8081)
 npx expo start --web
 ```
-
 ---
 
 ## ☁️ Deployment (Web, App Store & Google Play from Windows)
@@ -148,14 +134,8 @@ eas login
 
 # Trigger cloud builds for both iOS (TestFlight) and Android (Play Console)
 eas build --platform all
-```
 
 ---
-
-## 🗺️ MVP Development Roadmap
-
-- [ ] **Phase 1: Foundation** — Initialize universal Expo TypeScript template (iOS, Android, Web) and configure `.devcontainer` for Codespaces.
-- [ ] **Phase 2: Database, Auth & Ingestion** — Set up Supabase Auth (Anonymous + Apple/Google/Magic Link), tables (`profiles`, `books`, `user_swipes`, `ai_insights`), and run initial `gpt-4o-mini` tagging script for 100 seed books.
-- [ ] **Phase 3: Core Discovery Loop** — Build the 3-Button + Surprise Me top bar and the 4-Way Swipe / Arrow-Key Card component.
+- [ ] **Phase 3: Core Discovery Loop** — Use the Book/Quip library hub, Screen/Charts/Classics categories, Search and Surprise Me, and the three TBR/Read/Snooze actions.
 - [ ] **Phase 4: AI Integration** — Connect Supabase Edge Functions for the *AI On-Ramp*, *Social Post Generator*, and *Account Deletion*.
 - [ ] **Phase 5: Web & Mobile Beta Launch** — Deploy web companion to Vercel (`booquip.app`) and mobile builds via Apple TestFlight and Google Play Internal Testing.

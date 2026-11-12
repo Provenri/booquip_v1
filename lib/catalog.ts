@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { Book, BookAdaptation, Pillar, PillarInfo, Subcategory, SubcategoryId } from '@/lib/books';
+import type { Book, BookAdaptation, Pillar, PillarInfo } from '@/lib/books';
 
 export async function loadCatalog(): Promise<Book[]> {
   if (!supabase) return [];
@@ -7,7 +7,7 @@ export async function loadCatalog(): Promise<Book[]> {
   const [bookResult, adaptationResult] = await Promise.all([
     supabase
       .from('books')
-      .select('id, title, author, published_year, isbn, pillar, subcategory, note, cover_color')
+      .select('id, title, author, published_year, isbn, pillar, note, cover_color, is_active')
       .order('title', { ascending: true }),
     supabase
       .from('book_adaptations')
@@ -40,37 +40,21 @@ export async function loadCatalog(): Promise<Book[]> {
     year: row.published_year,
     isbn: row.isbn,
     pillar: row.pillar as Pillar,
-    subcategory: row.subcategory as SubcategoryId,
     note: row.note,
     color: row.cover_color,
     adaptations: adaptationsByBook.get(row.id) ?? [],
+    isActive: row.is_active,
   }));
 }
 
-export async function loadTaxonomy(): Promise<{ pillars: PillarInfo[]; subcategories: Subcategory[] }> {
-  if (!supabase) return { pillars: [], subcategories: [] };
-
-  const [pillarResult, subcategoryResult] = await Promise.all([
-    supabase.from('pillars').select('id, label, detail, color').order('sort_order'),
-    supabase.from('subcategories').select('id, pillar, label, short_label, description, color').order('sort_order'),
-  ]);
-  if (pillarResult.error) throw pillarResult.error;
-  if (subcategoryResult.error) throw subcategoryResult.error;
-
-  return {
-    pillars: (pillarResult.data ?? []).map((row) => ({
-      id: row.id as Pillar,
-      label: row.label,
-      detail: row.detail,
-      color: row.color,
-    })),
-    subcategories: (subcategoryResult.data ?? []).map((row) => ({
-      id: row.id as SubcategoryId,
-      pillar: row.pillar as Pillar,
-      label: row.label,
-      shortLabel: row.short_label,
-      description: row.description,
-      color: row.color,
-    })),
-  };
+export async function loadPillars(): Promise<PillarInfo[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('pillars').select('id, label, detail, color').order('sort_order');
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: row.id as Pillar,
+    label: row.label,
+    detail: row.detail,
+    color: row.color,
+  }));
 }

@@ -31,7 +31,7 @@ import {
   RotateCcw,
   X,
 } from 'lucide-react-native';
-import { BOOKS, PILLARS, SUBCATEGORIES, type Book, type Pillar, type SubcategoryId } from '@/lib/books';
+import { BOOKS, PILLARS, type Book, type Pillar } from '@/lib/books';
 import { linkCurrentUserEmail, resendCurrentUserEmailChange, signInWithEmail } from '@/lib/auth';
 import AccountSheet from '@/components/AccountSheet';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -41,10 +41,10 @@ import { generateSocialDraft } from '@/lib/socialGhostwriter';
 import SocialDraftSheet from '@/components/SocialDraftSheet';
 import TrendReplySheet from '@/components/TrendReplySheet';
 import { generateTrendReply } from '@/lib/trendInterceptor';
-import { loadCatalog, loadTaxonomy } from '@/lib/catalog';
-import CategoryRoulette from '@/components/CategoryRoulette';
+import { loadCatalog, loadPillars } from '@/lib/catalog';
 
 type Screen = 'discover' | 'tbr' | 'read' | 'snoozed';
+type Section = 'home' | 'book' | 'quip';
 type Action = 'tbr' | 'read' | 'freeze';
 type SyncStatus = 'local' | 'loading' | 'connected' | 'error';
 
@@ -89,14 +89,14 @@ function NavItem({
 export default function DiscoverScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 820;
+  const [section, setSection] = useState<Section>('home');
   const [screen, setScreen] = useState<Screen>('discover');
   const [tbrIds, setTbrIds] = useState<string[]>([]);
   const [readIds, setReadIds] = useState<string[]>([]);
   const [books, setBooks] = useState<Book[]>(BOOKS);
   const [pillars, setPillars] = useState(PILLARS);
-  const [subcategories, setSubcategories] = useState(SUBCATEGORIES);
   const [frozenUntil, setFrozenUntil] = useState<Record<string, number>>({});
-  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<SubcategoryId | null>(null);
+  const [selectedPillar, setSelectedPillar] = useState<Pillar | null>(null);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [socialDraftBook, setSocialDraftBook] = useState<Book | null>(null);
@@ -121,29 +121,22 @@ export default function DiscoverScreen() {
   const completedIds = new Set([...tbrIds, ...readIds]);
   const availableBooks = books.filter(
     (book) =>
+      book.isActive !== false &&
       !completedIds.has(book.id) &&
       (!frozenUntil[book.id] || frozenUntil[book.id] <= Date.now()),
   );
-  const remainingCounts = Object.fromEntries(
-    subcategories.map((category) => [
-      category.id,
-      availableBooks.filter((availableBook) => availableBook.subcategory === category.id).length,
-    ]),
-  ) as Record<SubcategoryId, number>;
+  const categoryBooks = selectedPillar
+    ? availableBooks.filter((availableBook) => availableBook.pillar === selectedPillar)
+    : availableBooks;
   const frozenBooks = books
     .filter((item) => (frozenUntil[item.id] ?? 0) > Date.now())
     .sort((left, right) => frozenUntil[left.id] - frozenUntil[right.id]);
   const book = selectedBookId ? books.find((item) => item.id === selectedBookId) : undefined;
-  const currentSubcategory = selectedSubcategoryId
-    ? subcategories.find((category) => category.id === selectedSubcategoryId)
-    : undefined;
   const currentPillar = book
     ? pillars.find((pillar) => pillar.id === book.pillar)
-    : currentSubcategory
-      ? pillars.find((pillar) => pillar.id === currentSubcategory.pillar)
-      : undefined;
+    : pillars.find((pillar) => pillar.id === selectedPillar);
   const searchResults = searchQuery.trim()
-    ? availableBooks.filter((availableBook) =>
+    ? categoryBooks.filter((availableBook) =>
         `${availableBook.title} ${availableBook.author}`.toLowerCase().includes(searchQuery.trim().toLowerCase()),
       ).slice(0, 5)
     : [];
@@ -158,17 +151,15 @@ export default function DiscoverScreen() {
       try {
         const activeUser = await getOrCreateAnonymousUser();
         if (!activeUser) throw new Error('Supabase is not configured.');
-        const [swipes, catalog, taxonomy] = await Promise.all([
+        const [swipes, catalog, remotePillars] = await Promise.all([
           loadUserSwipes(activeUser.id),
           loadCatalog().catch(() => [] as Book[]),
-          loadTaxonomy().catch(() => null),
+          loadPillars().catch(() => []),
         ]);
         if (!active) return;
         if (catalog.length > 0) setBooks(catalog);
-        if (taxonomy?.pillars.length === PILLARS.length && taxonomy.subcategories.length === SUBCATEGORIES.length) {
-          setPillars(taxonomy.pillars);
-          setSubcategories(taxonomy.subcategories);
-        }
+        const hasCurrentPillars = remotePillars.length === PILLARS.length && PILLARS.every((pillar) => remotePillars.some((remotePillar) => remotePillar.id === pillar.id));
+        if (hasCurrentPillars) setPillars(remotePillars);
 
         const restoredTbr: string[] = [];
         const restoredRead: string[] = [];
@@ -286,7 +277,7 @@ export default function DiscoverScreen() {
   }, []);
 
   const handleAction = (action: Action) => {
-    if (!book || screen !== 'discover' || syncStatus === 'loading' || isSaving) return;
+    if (!book || section !== 'book' || screen !== 'discover' || syncStatus === 'loading' || isSaving) return;
     const selectedBook = book;
     setSelectedBookId(null);
     if (action === 'tbr') setTbrIds((ids) => [...ids, selectedBook.id]);
@@ -350,13 +341,15 @@ export default function DiscoverScreen() {
   ).current;
 
   const revealBook = (chosenBook: Book) => {
-    setSelectedSubcategoryId(chosenBook.subcategory);
+    setSection('book');
+    setSelectedPillar(chosenBook.pillar);
     setSelectedBookId(chosenBook.id);
   };
 
-  const selectSubcategory = (subcategoryId: SubcategoryId) => {
-    const categoryBooks = availableBooks.filter((availableBook) => availableBook.subcategory === subcategoryId);
-    setSelectedSubcategoryId(subcategoryId);
+  const selectPillar = (pillar: Pillar) => {
+    setSelectedPillar(pillar);
+    setSearchQuery('');
+    const categoryBooks = availableBooks.filter((availableBook) => availableBook.pillar === pillar);
     if (categoryBooks.length === 0) {
       setSelectedBookId(null);
       return;
@@ -366,8 +359,8 @@ export default function DiscoverScreen() {
   };
 
   const handleSurpriseMe = () => {
-    const otherAvailableBooks = availableBooks.filter((availableBook) => availableBook.id !== selectedBookId);
-    const booksToChooseFrom = otherAvailableBooks.length > 0 ? otherAvailableBooks : availableBooks;
+    const otherAvailableBooks = categoryBooks.filter((availableBook) => availableBook.id !== selectedBookId);
+    const booksToChooseFrom = otherAvailableBooks.length > 0 ? otherAvailableBooks : categoryBooks;
     const chosenBook = booksToChooseFrom[Math.floor(Math.random() * booksToChooseFrom.length)];
     if (!chosenBook) return;
     setSearchQuery('');
@@ -377,7 +370,7 @@ export default function DiscoverScreen() {
   const handleWakeBook = (bookId: string) => {
     const snoozedBook = books.find((item) => item.id === bookId);
     const previousFreezeUntil = frozenUntil[bookId];
-    if (!snoozedBook || previousFreezeUntil === undefined || isSaving) return;
+    if (!snoozedBook || snoozedBook.isActive === false || previousFreezeUntil === undefined || isSaving) return;
     if (isSupabaseConfigured && !userId) {
       setSyncMessage('Your shelf is not connected. Reconnect before waking this book.');
       setSyncStatus('error');
@@ -386,9 +379,10 @@ export default function DiscoverScreen() {
 
     const wakeTimestamp = new Date(Date.now() - 1000).toISOString();
     setFrozenUntil((items) => ({ ...items, [bookId]: Date.parse(wakeTimestamp) }));
-    setSelectedSubcategoryId(snoozedBook.subcategory);
+    setSelectedPillar(snoozedBook.pillar);
     setSelectedBookId(snoozedBook.id);
     setSearchQuery('');
+    setSection('book');
     setScreen('discover');
 
     if (!userId || !isSupabaseConfigured) return;
@@ -414,6 +408,7 @@ export default function DiscoverScreen() {
     const wasInTbr = tbrIds.includes(bookId);
     const wasRead = readIds.includes(bookId);
     if (!shelfBook || (!wasInTbr && !wasRead) || isSaving) return;
+    const returnToDiscovery = shelfBook.isActive !== false;
     if (isSupabaseConfigured && !userId) {
       setSyncMessage('Your shelf is not connected. Reconnect before returning this book to discovery.');
       setSyncStatus('error');
@@ -422,16 +417,20 @@ export default function DiscoverScreen() {
 
     setTbrIds((ids) => ids.filter((id) => id !== bookId));
     setReadIds((ids) => ids.filter((id) => id !== bookId));
-    setSelectedSubcategoryId(shelfBook.subcategory);
-    setSelectedBookId(shelfBook.id);
+    setSelectedPillar(returnToDiscovery ? shelfBook.pillar : null);
+    setSelectedBookId(returnToDiscovery ? shelfBook.id : null);
     setSearchQuery('');
-    setScreen('discover');
+    setSection('book');
+    setScreen(returnToDiscovery ? 'discover' : sourceScreen);
 
-    if (!userId || !isSupabaseConfigured) return;
+    if (!userId || !isSupabaseConfigured) {
+      if (!returnToDiscovery) setSyncMessage('Archived book removed from your shelf; it remains out of discovery.');
+      return;
+    }
     setIsSaving(true);
     void deleteUserSwipe(userId, bookId)
       .then(() => {
-        setSyncMessage('');
+        setSyncMessage(returnToDiscovery ? '' : 'Archived book removed from your shelf; it remains out of discovery.');
         setSyncStatus('connected');
       })
       .catch(() => {
@@ -477,7 +476,8 @@ export default function DiscoverScreen() {
     setReadIds([]);
     setFrozenUntil({});
     setSelectedBookId(null);
-    setSelectedSubcategoryId(null);
+    setSelectedPillar(null);
+    setSection('home');
     setIsAccountSheetVisible(false);
     setAuthRetryCount((count) => count + 1);
   };
@@ -498,11 +498,12 @@ export default function DiscoverScreen() {
     setReadIds([]);
     setFrozenUntil({});
     setSelectedBookId(null);
-    setSelectedSubcategoryId(null);
+    setSelectedPillar(null);
     setSearchQuery('');
     setSocialDraftBook(null);
     setIsTrendReplyVisible(false);
     setScreen('discover');
+    setSection('home');
     setIsAccountSheetVisible(false);
     setAuthRetryCount((count) => count + 1);
   };
@@ -532,10 +533,15 @@ export default function DiscoverScreen() {
               <Text style={styles.brandName}>booquip</Text>
             </View>
             <Text style={styles.sidebarEyebrow}>YOUR LIBRARY</Text>
-            <NavItem label="Discover" active={screen === 'discover'} onPress={() => setScreen('discover')} icon={Sparkles} />
-            <NavItem label="To be read" count={tbrIds.length} active={screen === 'tbr'} onPress={() => setScreen('tbr')} icon={Bookmark} />
-            <NavItem label="Already read" count={readIds.length} active={screen === 'read'} onPress={() => setScreen('read')} icon={Check} />
-            <NavItem label="Snoozed" count={frozenBooks.length} active={screen === 'snoozed'} onPress={() => setScreen('snoozed')} icon={Clock3} />
+            <NavItem label="Book" active={section === 'book'} onPress={() => { setSection('book'); setScreen('discover'); }} icon={BookOpen} />
+            <NavItem label="Quip" active={section === 'quip'} onPress={() => setSection('quip')} icon={MessageCircle} />
+            {section === 'book' && <>
+              <Text style={styles.sidebarEyebrow}>YOUR SHELVES</Text>
+              <NavItem label="Discover" active={screen === 'discover'} onPress={() => setScreen('discover')} icon={Sparkles} />
+              <NavItem label="To be read" count={tbrIds.length} active={screen === 'tbr'} onPress={() => setScreen('tbr')} icon={Bookmark} />
+              <NavItem label="Already read" count={readIds.length} active={screen === 'read'} onPress={() => setScreen('read')} icon={Check} />
+              <NavItem label="Snoozed" count={frozenBooks.length} active={screen === 'snoozed'} onPress={() => setScreen('snoozed')} icon={Clock3} />
+            </>}
             <NavItem
               label={isAnonymous ? 'Link your shelf' : 'Account'}
               active={false}
@@ -545,7 +551,7 @@ export default function DiscoverScreen() {
             />
             <View style={styles.sidebarFooter}>
               <Text style={styles.sidebarFooterLabel}>A SMALL STACK, A GOOD START</Text>
-              <Text style={styles.sidebarFooterText}>{books.length} curated titles across {subcategories.length} shelves.</Text>
+                <Text style={styles.sidebarFooterText}>{books.filter((item) => item.isActive !== false).length} books across {pillars.length} categories.</Text>
             </View>
           </View>
         )}
@@ -569,8 +575,16 @@ export default function DiscoverScreen() {
             </Pressable>
           </View>
 
-          {!isWide && (
+          {section !== 'home' && (
             <View style={styles.mobileNav}>
+              <NavItem compact label="Book" active={section === 'book'} onPress={() => { setSection('book'); setScreen('discover'); }} icon={BookOpen} />
+              <NavItem compact label="Quip" active={section === 'quip'} onPress={() => setSection('quip')} icon={MessageCircle} />
+              <NavItem compact label="Your Library" active={false} onPress={() => setSection('home')} icon={ArrowLeft} />
+            </View>
+          )}
+
+          {section === 'book' && !isWide && (
+            <View style={[styles.mobileNav, styles.bookShelfNav]}>
               <NavItem compact label="Discover" active={screen === 'discover'} onPress={() => setScreen('discover')} icon={Sparkles} />
               <NavItem compact label="TBR" count={tbrIds.length} active={screen === 'tbr'} onPress={() => setScreen('tbr')} icon={Bookmark} />
               <NavItem compact label="Read" count={readIds.length} active={screen === 'read'} onPress={() => setScreen('read')} icon={Check} />
@@ -581,8 +595,8 @@ export default function DiscoverScreen() {
           <ScrollView contentContainerStyle={[styles.content, !isWide && styles.contentMobile]}>
             <View style={styles.pageHeading}>
               <View>
-                <Text style={styles.eyebrow}>{screen === 'discover' ? 'THE DISCOVERY DESK' : 'YOUR SHELVES'}</Text>
-                <Text style={styles.pageTitle}>{screenTitle}</Text>
+                <Text style={styles.eyebrow}>{section === 'home' ? 'YOUR LIBRARY' : section === 'book' ? 'BOOK' : 'QUIP'}</Text>
+                <Text style={styles.pageTitle}>{section === 'home' ? 'Your Library' : section === 'book' ? screenTitle : 'Reply to a trend'}</Text>
               </View>
               <Text style={styles.issueMark}>NO. 001 <Text style={styles.issueDot}>/</Text> 2026</Text>
             </View>
@@ -591,7 +605,47 @@ export default function DiscoverScreen() {
               <Text style={styles.syncStatusText}>{syncLabel}</Text>
             </View>
 
-            {screen === 'discover' ? (
+            {section === 'home' ? (
+              <View style={styles.hubSections}>
+                <Pressable accessibilityRole="button" onPress={() => { setSection('book'); setScreen('discover'); }}
+                  style={({ pressed }) => [styles.hubSection, pressed && styles.hubSectionPressed]}>
+                  <View style={styles.hubSectionIcon}><BookOpen color="#34755e" size={21} /></View>
+                  <View style={styles.hubSectionCopy}>
+                    <Text style={styles.hubSectionEyebrow}>DISCOVER AND COLLECT</Text>
+                    <Text style={styles.hubSectionTitle}>Book</Text>
+                    <Text style={styles.hubSectionDescription}>Find a book, save it, mark it read, or snooze it for later.</Text>
+                  </View>
+                  <ArrowRight color="#728077" size={18} />
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={() => setSection('quip')}
+                  style={({ pressed }) => [styles.hubSection, pressed && styles.hubSectionPressed]}>
+                  <View style={styles.hubSectionIcon}><MessageCircle color="#477d6c" size={21} /></View>
+                  <View style={styles.hubSectionCopy}>
+                    <Text style={styles.hubSectionEyebrow}>WRITE FROM WHAT YOU READ</Text>
+                    <Text style={styles.hubSectionTitle}>Quip</Text>
+                    <Text style={styles.hubSectionDescription}>{readBooks.length ? 'Draft a book-informed reply to a current conversation.' : 'Mark a book as read to start a trend reply.'}</Text>
+                  </View>
+                  <ArrowRight color="#728077" size={18} />
+                </Pressable>
+                <View style={styles.hubStatus}>
+                  <View style={[styles.syncDot, syncStatus === 'connected' && styles.syncDotConnected, syncStatus === 'error' && styles.syncDotError]} />
+                  <Text style={styles.syncStatusText}>{syncLabel}</Text>
+                </View>
+              </View>
+            ) : section === 'quip' ? (
+              <View style={styles.quipSection}>
+                <Text style={styles.quipCount}>{readBooks.length} READ {readBooks.length === 1 ? 'BOOK' : 'BOOKS'} AVAILABLE FOR CONTEXT</Text>
+                <Text style={styles.quipDescription}>Use one book or your entire Read shelf to shape an editable reply to a post or topic.</Text>
+                <Pressable accessibilityRole="button" disabled={readBooks.length === 0} onPress={() => setIsTrendReplyVisible(true)}
+                  style={({ pressed }) => [styles.quipButton, readBooks.length === 0 && styles.actionDisabled, pressed && styles.actionPressed]}>
+                  <MessageCircle color="#fffaf6" size={16} />
+                  <Text style={styles.quipButtonText}>REPLY TO TREND</Text>
+                </Pressable>
+                {readBooks.length === 0 ? <Pressable accessibilityRole="button" onPress={() => { setSection('book'); setScreen('read'); }} style={styles.resetButton}>
+                  <Check color="#285f4e" size={16} /><Text style={styles.resetButtonText}>VIEW READ SHELF</Text>
+                </Pressable> : null}
+              </View>
+            ) : screen === 'discover' ? (
               <>
                 <View style={styles.searchSection}>
                   <View style={styles.searchInputWrap}>
@@ -604,7 +658,7 @@ export default function DiscoverScreen() {
                       onSubmitEditing={() => {
                         if (searchResults.length === 1) {
                           const result = searchResults[0];
-                          setSelectedSubcategoryId(result.subcategory);
+                          setSelectedPillar(result.pillar);
                           setSelectedBookId(result.id);
                           setSearchQuery('');
                         }
@@ -629,7 +683,7 @@ export default function DiscoverScreen() {
                           accessibilityRole="button"
                           disabled={syncStatus === 'loading'}
                           onPress={() => {
-                            setSelectedSubcategoryId(result.subcategory);
+                            setSelectedPillar(result.pillar);
                             setSelectedBookId(result.id);
                             setSearchQuery('');
                           }}
@@ -640,7 +694,7 @@ export default function DiscoverScreen() {
                             <Text style={styles.searchResultTitle}>{result.title}</Text>
                             <Text style={styles.searchResultAuthor}>{result.author} · {result.year}</Text>
                           </View>
-                          <Text style={styles.searchResultShelf}>{subcategories.find((category) => category.id === result.subcategory)?.shortLabel.toUpperCase()}</Text>
+                          <Text style={styles.searchResultShelf}>{pillars.find((category) => category.id === result.pillar)?.label.toUpperCase()}</Text>
                         </Pressable>
                       )) : (
                         <Text style={styles.searchEmpty}>No available titles match that search.</Text>
@@ -650,32 +704,40 @@ export default function DiscoverScreen() {
                 </View>
 
                 <View style={styles.pillarHeader}>
-                  <Text style={styles.sectionLabel}>THE EIGHT SHELVES</Text>
+                  <Text style={styles.sectionLabel}>BOOK CATEGORIES</Text>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Surprise me with a book from any shelf"
-                    disabled={syncStatus === 'loading' || availableBooks.length === 0}
+                    accessibilityLabel={selectedPillar ? `Surprise me with a ${pillars.find((item) => item.id === selectedPillar)?.label} book` : 'Surprise me with a book from any category'}
+                    disabled={syncStatus === 'loading' || categoryBooks.length === 0}
                     onPress={handleSurpriseMe}
-                    style={({ pressed }) => [styles.surpriseButton, styles.surpriseButtonActive, (syncStatus === 'loading' || availableBooks.length === 0) && styles.actionDisabled, pressed && styles.surpriseButtonPressed]}
+                    style={({ pressed }) => [styles.surpriseButton, styles.surpriseButtonActive, (syncStatus === 'loading' || categoryBooks.length === 0) && styles.actionDisabled, pressed && styles.surpriseButtonPressed]}
                   >
                     <Sparkles color="#fffaf6" size={14} />
                     <Text style={styles.surpriseText}>SURPRISE ME</Text>
                   </Pressable>
                 </View>
 
-                <CategoryRoulette
-                  categories={subcategories}
-                  remainingCounts={remainingCounts}
-                  selectedId={selectedSubcategoryId}
-                  disabled={syncStatus === 'loading'}
-                  onSelect={selectSubcategory}
-                />
+                <View style={styles.categoryRow}>
+                  {pillars.map((pillar) => {
+                    const count = availableBooks.filter((availableBook) => availableBook.pillar === pillar.id).length;
+                    const selected = selectedPillar === pillar.id;
+                    return <Pressable key={pillar.id} accessibilityRole="button" accessibilityState={{ selected }}
+                      disabled={syncStatus === 'loading'} onPress={() => selectPillar(pillar.id)}
+                      style={({ pressed }) => [styles.categoryButton, selected && styles.categoryButtonSelected, syncStatus === 'loading' && styles.actionDisabled, pressed && styles.actionPressed]}>
+                      <View style={[styles.categoryDot, { backgroundColor: pillar.color }]} />
+                      <View style={styles.categoryButtonCopy}>
+                        <Text style={[styles.categoryButtonTitle, selected && styles.categoryButtonTitleSelected]}>{pillar.label}</Text>
+                        <Text style={[styles.categoryButtonCount, selected && styles.categoryButtonCountSelected]}>{count} available</Text>
+                      </View>
+                    </Pressable>;
+                  })}
+                </View>
 
                 <View style={styles.cardMetaRow}>
                   <Text style={styles.sectionLabel}>
-                    {currentSubcategory?.label.toUpperCase() ?? currentPillar?.detail.toUpperCase() ?? 'A LITTLE OF EVERYTHING'}
+                    {currentPillar?.label.toUpperCase() ?? 'CHOOSE A CATEGORY'}
                   </Text>
-                  <Text style={styles.cardPosition}>{book ? 'YOUR NEXT READ' : selectedSubcategoryId ? 'SHELF EMPTY · SPIN AGAIN' : 'READY WHEN YOU ARE'}</Text>
+                  <Text style={styles.cardPosition}>{book ? 'YOUR NEXT READ' : selectedPillar ? 'CATEGORY EMPTY · CHOOSE AGAIN' : 'READY WHEN YOU ARE'}</Text>
                 </View>
 
                 {book ? (
@@ -775,11 +837,11 @@ export default function DiscoverScreen() {
                       </View>
                     </View>
                   </Animated.View>
-                ) : selectedSubcategoryId ? (
+                ) : selectedPillar ? (
                   <View style={styles.emptyState}>
                     <View style={styles.emptyIcon}><BookOpen color="#3d735f" size={24} /></View>
-                    <Text style={styles.emptyTitle}>This shelf is between books.</Text>
-                    <Text style={styles.emptyCopy}>The wheel landed on {currentSubcategory?.label}. Spin again to find another shelf.</Text>
+                    <Text style={styles.emptyTitle}>No available books in {currentPillar?.label}.</Text>
+                    <Text style={styles.emptyCopy}>Choose another category or use Surprise Me across the available books.</Text>
                   </View>
                 ) : null}
 
@@ -847,7 +909,8 @@ export default function DiscoverScreen() {
                         ) : isWide ? (
                           <Text style={styles.shelfPillar}>{pillars.find((pillar) => pillar.id === item.pillar)?.label.toUpperCase()}</Text>
                         ) : null}
-                        {screen === 'snoozed' && (
+                        {screen === 'snoozed' && item.isActive === false && <Text style={styles.archivedLabel}>ARCHIVED</Text>}
+                        {screen === 'snoozed' && item.isActive !== false && (
                           <Pressable
                             accessibilityRole="button"
                             accessibilityLabel={`Wake ${item.title} and return it to discovery now`}
@@ -873,13 +936,13 @@ export default function DiscoverScreen() {
                         {screen !== 'snoozed' && (
                           <Pressable
                             accessibilityRole="button"
-                            accessibilityLabel={`Remove ${item.title} from this shelf and return it to discovery`}
+                            accessibilityLabel={item.isActive === false ? `Remove archived ${item.title} from this shelf` : `Remove ${item.title} from this shelf and return it to discovery`}
                             disabled={isSaving || syncStatus === 'loading'}
                             onPress={() => handleRemoveFromShelf(item.id)}
                             style={({ pressed }) => [styles.returnBookButton, isSaving && styles.actionDisabled, pressed && styles.actionPressed]}
                           >
                             <RotateCcw color="#34755e" size={14} />
-                            <Text style={styles.returnBookButtonText}>RETURN</Text>
+                            <Text style={styles.returnBookButtonText}>{item.isActive === false ? 'REMOVE' : 'RETURN'}</Text>
                           </Pressable>
                         )}
                       </View>
@@ -955,6 +1018,21 @@ const styles = StyleSheet.create({
   accountButton: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 8, borderRadius: 4, backgroundColor: '#e7efe8' },
   accountButtonText: { color: '#426450', fontSize: 8, fontWeight: '800', letterSpacing: 0.6 },
   mobileNav: { flexDirection: 'row', paddingHorizontal: 14, paddingTop: 7, borderBottomWidth: 1, borderBottomColor: '#dfe4de' },
+  bookShelfNav: { backgroundColor: '#f7f8f4' },
+  hubSections: { maxWidth: 860, width: '100%', alignSelf: 'center', borderTopWidth: 1, borderTopColor: '#dfe4dc' },
+  hubSection: { minHeight: 140, flexDirection: 'row', alignItems: 'center', gap: 18, paddingHorizontal: 14, paddingVertical: 22, borderBottomWidth: 1, borderBottomColor: '#dfe4dc' },
+  hubSectionPressed: { backgroundColor: '#eaf0e9' },
+  hubSectionIcon: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: '#e5f1e8' },
+  hubSectionCopy: { flex: 1, minWidth: 0 },
+  hubSectionEyebrow: { color: '#728077', fontSize: 9, fontWeight: '700' },
+  hubSectionTitle: { color: '#29382f', fontSize: 22, lineHeight: 28, fontWeight: '600', marginTop: 3 },
+  hubSectionDescription: { color: '#68766d', fontSize: 12, lineHeight: 18, marginTop: 4, maxWidth: 450 },
+  hubStatus: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 17 },
+  quipSection: { maxWidth: 860, width: '100%', alignSelf: 'center', minHeight: 280, justifyContent: 'center', alignItems: 'flex-start', paddingVertical: 35, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#dfe4dc' },
+  quipCount: { color: '#688074', fontSize: 9, fontWeight: '700' },
+  quipDescription: { maxWidth: 470, color: '#34433b', fontSize: 18, lineHeight: 27, marginTop: 10, marginBottom: 20 },
+  quipButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, borderRadius: 4, backgroundColor: '#34755e' },
+  quipButtonText: { color: '#fffaf6', fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
   content: { width: '100%', maxWidth: 1050, alignSelf: 'center', paddingHorizontal: 56, paddingTop: 43, paddingBottom: 24 },
   contentMobile: { paddingHorizontal: 20, paddingTop: 25 },
   pageHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 33 },
@@ -970,6 +1048,15 @@ const styles = StyleSheet.create({
   pillarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
   sectionLabel: { color: '#68786e', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
   stackCount: { color: '#929d95', fontSize: 9, fontWeight: '700', letterSpacing: 0.8 },
+  categoryRow: { maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', gap: 8, marginBottom: 22 },
+  categoryButton: { flex: 1, minWidth: 0, minHeight: 72, justifyContent: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: '#d2dad2', borderRadius: 5, backgroundColor: '#f8f9f6' },
+  categoryButtonSelected: { borderColor: '#34755e', backgroundColor: '#34755e' },
+  categoryDot: { width: 7, height: 7, borderRadius: 4 },
+  categoryButtonCopy: { minWidth: 0 },
+  categoryButtonTitle: { color: '#35433b', fontSize: 11, lineHeight: 14, fontWeight: '700' },
+  categoryButtonTitleSelected: { color: '#fffaf6' },
+  categoryButtonCount: { color: '#879188', fontSize: 9, marginTop: 2 },
+  categoryButtonCountSelected: { color: '#e5eee7' },
   searchSection: { maxWidth: 860, width: '100%', alignSelf: 'center', marginBottom: 22, zIndex: 2 },
   searchInputWrap: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 5, backgroundColor: '#fffefa', paddingHorizontal: 13 },
   searchInput: { flex: 1, minWidth: 0, height: 44, color: '#29382f', fontSize: 13 },
@@ -1060,6 +1147,7 @@ const styles = StyleSheet.create({
   shelfTitle: { color: '#29382f', fontSize: 15, fontWeight: '600' },
   shelfAuthor: { color: '#78857d', fontSize: 11, marginTop: 4 },
   shelfPillar: { color: '#819087', fontSize: 8, fontWeight: '700', letterSpacing: 0.8 },
+  archivedLabel: { color: '#879188', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
   shelfReturn: { color: '#8a6e46', fontSize: 7 },
   wakeButton: { minWidth: 54, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6, borderRadius: 4, backgroundColor: '#f0ebe1' },
   wakeButtonText: { color: '#765d3b', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
