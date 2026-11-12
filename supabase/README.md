@@ -24,7 +24,7 @@ When Supabase is configured, the app loads book metadata from `public.books`, ad
 
 ## TMDb Adaptation Matching
 
-`TMDB_API_KEY` is held as a Supabase Function secret. The one-time `tmdb-adaptation-sync` function searches only pending curated adaptations, sequentially with a 300 ms pause, and stores a TMDb ID only when media type, normalized title, and release year all match exactly. It stores lookup status and check time for unmatched or ambiguous records so they are not repeatedly queried. It does not retrieve posters, overviews, or provider listings, and the app makes no TMDb requests while users browse.
+`TMDB_API_KEY` is held as a Supabase Function secret. The one-time `tmdb-adaptation-sync` function searches only pending curated adaptations, sequentially with a 300 ms pause, and stores a TMDb ID only when media type, normalized title, and release year all match exactly. It then requests credits once for each exact match and caches only the first three credited names. It stores lookup/credits check times so completed records are not repeatedly queried. It does not retrieve posters, overviews, or provider listings, and the app makes no TMDb requests while users browse.
 
 For a future catalog refresh, set a temporary random `TMDB_SYNC_SECRET` in Supabase Function secrets, deploy `tmdb-adaptation-sync`, and invoke it from a secure admin environment using the `x-tmdb-sync-secret` header. After it finishes, unset `TMDB_SYNC_SECRET` and delete the temporary deployed function. Keep the required TMDb attribution in the app wherever matched TMDb data is shown.
 

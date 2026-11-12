@@ -138,7 +138,56 @@ edgeRuntime.serve(async (request: Request) => {
       processed += 1;
     }
 
-    return jsonResponse(200, { processed, remaining: 0, counts });
+    const castUrl = new URL('/rest/v1/book_adaptations', supabaseUrl);
+    castUrl.searchParams.set('select', 'id,format,tmdb_id');
+    castUrl.searchParams.set('tmdb_lookup_status', 'eq.matched');
+    castUrl.searchParams.set('tmdb_cast_checked_at', 'is.null');
+    castUrl.searchParams.set('tmdb_id', 'not.is.null');
+    castUrl.searchParams.set('order', 'id.asc');
+    castUrl.searchParams.set('limit', '50');
+    const castRowsResponse = await fetch(castUrl, { headers: supabaseHeaders });
+    if (!castRowsResponse.ok) return jsonResponse(502, { processed, counts, error: 'Could not load matched adaptations for cast lookup.' });
+    const castRows = await castRowsResponse.json();
+    if (!Array.isArray(castRows)) return jsonResponse(502, { processed, counts, error: 'Matched adaptations were invalid.' });
+
+    let castProcessed = 0;
+    let castEmpty = 0;
+    for (const [index, adaptation] of castRows.entries()) {
+      if (index > 0) await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const mediaType = adaptation.format === 'film' ? 'movie' : 'tv';
+      const creditType = mediaType === 'movie' ? 'credits' : 'aggregate_credits';
+      const creditsUrl = new URL(`https://api.themoviedb.org/3/${mediaType}/${adaptation.tmdb_id}/${creditType}`);
+      creditsUrl.searchParams.set('api_key', tmdbApiKey);
+      creditsUrl.searchParams.set('language', 'en-US');
+      const creditsResponse = await fetch(creditsUrl, { signal: AbortSignal.timeout(10000) });
+      if (creditsResponse.status === 429) {
+        return jsonResponse(429, { processed, castProcessed, castRemaining: castRows.length - castProcessed, counts, error: 'TMDb rate limit reached. Cast credits can be resumed later.' });
+      }
+      if (!creditsResponse.ok) return jsonResponse(502, { processed, castProcessed, castRemaining: castRows.length - castProcessed, counts, error: 'TMDb credits lookup failed. Cast credits can be resumed later.' });
+
+      const credits = await creditsResponse.json();
+      const cast = Array.isArray(credits.cast) ? credits.cast as Array<Record<string, unknown>> : [];
+      const castMembers = cast
+        .filter((member) => typeof member.name === 'string' && member.name.trim().length > 0)
+        .sort((left, right) => Number(left.order ?? 9999) - Number(right.order ?? 9999))
+        .map((member) => (member.name as string).trim())
+        .filter((name, memberIndex, names) => names.indexOf(name) === memberIndex)
+        .slice(0, 3);
+
+      const updateCastUrl = new URL('/rest/v1/book_adaptations', supabaseUrl);
+      updateCastUrl.searchParams.set('id', `eq.${adaptation.id}`);
+      const updateCastResponse = await fetch(updateCastUrl, {
+        method: 'PATCH',
+        headers: { ...supabaseHeaders, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify({ tmdb_cast: castMembers, tmdb_cast_checked_at: new Date().toISOString() }),
+      });
+      if (!updateCastResponse.ok) return jsonResponse(502, { processed, castProcessed, counts, error: 'Could not cache cast credits.' });
+      if (castMembers.length === 0) castEmpty += 1;
+      castProcessed += 1;
+    }
+
+    return jsonResponse(200, { processed, remaining: 0, counts, castProcessed, castEmpty });
   } catch {
     return jsonResponse(502, { error: 'TMDb sync failed. Completed records remain cached; try again later.' });
   }

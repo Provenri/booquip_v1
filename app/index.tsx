@@ -730,6 +730,9 @@ export default function DiscoverScreen() {
                               <Text style={styles.adaptationMeta}>
                                 {adaptation.format.toUpperCase()} · {adaptation.releaseYear}{adaptation.platform ? ` · ${adaptation.platform}` : ''}
                               </Text>
+                              {adaptation.castMembers?.length ? (
+                                <Text style={styles.adaptationCast}>CAST · {adaptation.castMembers.join(', ')}</Text>
+                              ) : null}
                             </View>
                             {adaptation.tmdbId ? (
                               <Pressable
@@ -1017,6 +1020,7 @@ const styles = StyleSheet.create({
   adaptationCopy: { flex: 1, minWidth: 0 },
   adaptationTitle: { color: '#35433b', fontSize: 12, lineHeight: 17, fontWeight: '600' },
   adaptationMeta: { color: '#78857d', fontSize: 9, lineHeight: 14, marginTop: 2 },
+  adaptationCast: { color: '#63736a', fontSize: 9, lineHeight: 14, marginTop: 3 },
   adaptationEmpty: { color: '#879188', fontSize: 10, lineHeight: 15 },
   tmdbLink: { minHeight: 28, justifyContent: 'center', paddingHorizontal: 6 },
   tmdbLinkText: { color: '#477d6c', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },

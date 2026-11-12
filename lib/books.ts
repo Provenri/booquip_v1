@@ -40,6 +40,7 @@ export type BookAdaptation = {
   releaseYear: number;
   platform: string | null;
   tmdbId?: number | null;
+  castMembers?: string[];
   tmdbLookupStatus?: 'pending' | 'matched' | 'not_found' | 'ambiguous' | 'year_mismatch';
 };
 
