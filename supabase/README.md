@@ -20,6 +20,9 @@
 
 ## Book Catalog
 
+The private Digital source registry and metadata-only RSS review workflow are
+documented in `pipeline/README.md`. They do not publish or change the catalog.
+
 When Supabase is configured, the app loads book metadata from `public.books`, adaptations from `public.book_adaptations`, and shelf/pillar definitions from `public.subcategories` and `public.pillars`; the bundled data in `lib/books.ts` remains a local/offline fallback if Supabase is unavailable. The catalog migration adds 56 titles for 80 total, with 10 titles in each of the eight shelves. Add future catalog and adaptation records through migrations so configured app clients share one source.
 
 ## TMDb Adaptation Matching
