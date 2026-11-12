@@ -731,10 +731,23 @@ export default function DiscoverScreen() {
                                 {adaptation.format.toUpperCase()} · {adaptation.releaseYear}{adaptation.platform ? ` · ${adaptation.platform}` : ''}
                               </Text>
                             </View>
+                            {adaptation.tmdbId ? (
+                              <Pressable
+                                accessibilityRole="link"
+                                accessibilityLabel={`View ${adaptation.title} on TMDb`}
+                                onPress={() => void Linking.openURL(`https://www.themoviedb.org/${adaptation.format === 'film' ? 'movie' : 'tv'}/${adaptation.tmdbId}`)}
+                                style={styles.tmdbLink}
+                              >
+                                <Text style={styles.tmdbLinkText}>TMDb</Text>
+                              </Pressable>
+                            ) : null}
                           </View>
                         )) : (
                           <Text style={styles.adaptationEmpty}>No adaptation details curated yet.</Text>
                         )}
+                        {book.adaptations?.some((adaptation) => adaptation.tmdbId) ? (
+                          <Text style={styles.tmdbAttribution}>This product uses the TMDB API but is not endorsed or certified by TMDB.</Text>
+                        ) : null}
                       </View>
                       <View style={styles.onRampSection}>
                         <View style={styles.onRampHeader}>
@@ -1005,6 +1018,9 @@ const styles = StyleSheet.create({
   adaptationTitle: { color: '#35433b', fontSize: 12, lineHeight: 17, fontWeight: '600' },
   adaptationMeta: { color: '#78857d', fontSize: 9, lineHeight: 14, marginTop: 2 },
   adaptationEmpty: { color: '#879188', fontSize: 10, lineHeight: 15 },
+  tmdbLink: { minHeight: 28, justifyContent: 'center', paddingHorizontal: 6 },
+  tmdbLinkText: { color: '#477d6c', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
+  tmdbAttribution: { color: '#9aa49c', fontSize: 7, lineHeight: 10, marginTop: 8 },
   onRampSection: { marginTop: 20, paddingTop: 13, borderTopWidth: 1, borderTopColor: '#e8e9e3' },
   onRampHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' },
   onRampButton: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 9, borderRadius: 4, backgroundColor: '#e7f0e9' },

@@ -39,6 +39,8 @@ export type BookAdaptation = {
   format: 'film' | 'series';
   releaseYear: number;
   platform: string | null;
+  tmdbId?: number | null;
+  tmdbLookupStatus?: 'pending' | 'matched' | 'not_found' | 'ambiguous' | 'year_mismatch';
 };
 
 export const PILLARS: PillarInfo[] = [

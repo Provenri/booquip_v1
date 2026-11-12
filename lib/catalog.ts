@@ -11,7 +11,7 @@ export async function loadCatalog(): Promise<Book[]> {
       .order('title', { ascending: true }),
     supabase
       .from('book_adaptations')
-      .select('book_id, title, format, release_year, platform, sort_order')
+      .select('book_id, title, format, release_year, platform, sort_order, tmdb_id, tmdb_lookup_status')
       .order('book_id', { ascending: true })
       .order('sort_order', { ascending: true }),
   ]);
@@ -26,6 +26,8 @@ export async function loadCatalog(): Promise<Book[]> {
       format: adaptation.format as BookAdaptation['format'],
       releaseYear: adaptation.release_year,
       platform: adaptation.platform,
+      tmdbId: adaptation.tmdb_id,
+      tmdbLookupStatus: adaptation.tmdb_lookup_status as BookAdaptation['tmdbLookupStatus'],
     });
     adaptationsByBook.set(adaptation.book_id, records);
   }

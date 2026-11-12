@@ -6,6 +6,9 @@ verify_jwt = true
 [functions.delete-user-account]
 verify_jwt = true
 
+[functions.tmdb-adaptation-sync]
+verify_jwt = false
+
 [functions.social-ghostwriter]
 verify_jwt = true
 

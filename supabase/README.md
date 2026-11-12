@@ -22,6 +22,12 @@
 
 When Supabase is configured, the app loads book metadata from `public.books`, adaptations from `public.book_adaptations`, and shelf/pillar definitions from `public.subcategories` and `public.pillars`; the bundled data in `lib/books.ts` remains a local/offline fallback if Supabase is unavailable. The catalog migration adds 56 titles for 80 total, with 10 titles in each of the eight shelves. Add future catalog and adaptation records through migrations so configured app clients share one source.
 
+## TMDb Adaptation Matching
+
+`TMDB_API_KEY` is held as a Supabase Function secret. The one-time `tmdb-adaptation-sync` function searches only pending curated adaptations, sequentially with a 300 ms pause, and stores a TMDb ID only when media type, normalized title, and release year all match exactly. It stores lookup status and check time for unmatched or ambiguous records so they are not repeatedly queried. It does not retrieve posters, overviews, or provider listings, and the app makes no TMDb requests while users browse.
+
+For a future catalog refresh, set a temporary random `TMDB_SYNC_SECRET` in Supabase Function secrets, deploy `tmdb-adaptation-sync`, and invoke it from a secure admin environment using the `x-tmdb-sync-secret` header. After it finishes, unset `TMDB_SYNC_SECRET` and delete the temporary deployed function. Keep the required TMDb attribution in the app wherever matched TMDb data is shown.
+
 ## Account Deletion
 
 Linked, confirmed users can permanently delete their account from the account panel. The `delete-user-account` Edge Function verifies the caller's session and derives the deletion target from that identity; it never accepts a user ID from the client. Profiles and swipe data are removed by their `ON DELETE CASCADE` foreign keys.
