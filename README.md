@@ -16,7 +16,7 @@ Users tap a single pill at the top of the screen based on their immediate energy
 2. **🏛️ Civilization** *(Historical Impact)*
    * Rotates internally across *Blueprints of Power* (political/social treatises), *Scientific Paradigm Shifts*, and *The Forbidden Shelves* (historically banned texts).
 3. **📱 Digital** *(Cultural Immediacy)*
-   * Rotates internally across *Substack & Longform Pioneers* (viral digital essays turned books) and *Algorithmic Blockbusters* (#BookTok, Reddit, and crowdfunded hits).
+   * Rotates internally across *Essays & Online Culture* and *Algorithmic Blockbusters*.
 4. **✨ Surprise Me** *(Serendipity Mode)*
    * Draws a single high-impact book randomly across all three pillars.
 
@@ -91,7 +91,6 @@ BooQuip syncs user shelves, swipe states, and *Humanity Quotient* metrics seamle
 ├── supabase/
 │ ├── functions/ # Edge Functions (ai-on-ramp, social-ghostwriter, trend-interceptor, delete-user-account)
 │ └── migrations/ # PostgreSQL database schemas, auto-profile triggers, & RLS policies
-├── pipeline/ # Python data scrapers (TMDb API, Open Syllabus, Substack/Reddit)
 ├── .devcontainer/ # GitHub Codespaces environment setup
 └── README.md
 ```

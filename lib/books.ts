@@ -7,7 +7,7 @@ export type SubcategoryId =
   | 'blueprints-of-power'
   | 'scientific-paradigm-shifts'
   | 'forbidden-shelves'
-  | 'substack-longform-pioneers'
+  | 'essays-online-culture'
   | 'algorithmic-blockbusters';
 
 export type Book = {
@@ -57,7 +57,7 @@ export const SUBCATEGORIES: Subcategory[] = [
   { id: 'blueprints-of-power', pillar: 'civilization', label: 'Blueprints of Power', shortLabel: 'Power', description: 'Political and social ideas that shape how we live.', color: '#477d6c' },
   { id: 'scientific-paradigm-shifts', pillar: 'civilization', label: 'Scientific Paradigm Shifts', shortLabel: 'Science', description: 'Books that changed how we understand the world.', color: '#67917a' },
   { id: 'forbidden-shelves', pillar: 'civilization', label: 'The Forbidden Shelves', shortLabel: 'Forbidden', description: 'Challenged and banned books that still provoke debate.', color: '#829e79' },
-  { id: 'substack-longform-pioneers', pillar: 'digital', label: 'Substack & Longform Pioneers', shortLabel: 'Longform', description: 'Digital essays and long-form writing gathered into books.', color: '#6177a2' },
+  { id: 'essays-online-culture', pillar: 'digital', label: 'Essays & Online Culture', shortLabel: 'Essays', description: 'Essay collections and books exploring contemporary online culture.', color: '#6177a2' },
   { id: 'algorithmic-blockbusters', pillar: 'digital', label: 'Algorithmic Blockbusters', shortLabel: 'BookTok', description: 'Reader-driven hits taking off across online communities.', color: '#778fb5' },
 ];
 
@@ -103,9 +103,9 @@ export const BOOKS: Book[] = [
   createBook('nineteen-eighty-four', '1984', 'George Orwell', 1949, '9780451524935', 'forbidden-shelves', 'A citizen tries to hold on to truth in a state built around surveillance and control.', '#ad5b4e'),
   createBook('bluest-eye', 'The Bluest Eye', 'Toni Morrison', 1970, '9780307278449', 'forbidden-shelves', 'A young girl’s story exposes the damage wrought by racism and narrow ideals of beauty.', '#795e77'),
   createBook('persepolis', 'Persepolis', 'Marjane Satrapi', 2000, '9780375714573', 'forbidden-shelves', 'A graphic memoir follows a girl growing up through revolution, war, and exile.', '#565a61'),
-  createBook('no-one-talking', 'No One Is Talking About This', 'Patricia Lockwood', 2021, '9780593189588', 'substack-longform-pioneers', 'A novelist traces how life online remakes language, attention, and intimacy.', '#967da0'),
-  createBook('trick-mirror', 'Trick Mirror', 'Jia Tolentino', 2019, '9780525510567', 'substack-longform-pioneers', 'Nine essays examine the stories and incentives shaping life online.', '#967da0'),
-  createBook('anthropocene-reviewed', 'The Anthropocene Reviewed', 'John Green', 2021, '9780525555216', 'substack-longform-pioneers', 'A series of personal essays reviews everyday things against the scale of human history.', '#618f83'),
+  createBook('no-one-talking', 'No One Is Talking About This', 'Patricia Lockwood', 2021, '9780593189588', 'essays-online-culture', 'A novelist traces how life online remakes language, attention, and intimacy.', '#967da0'),
+  createBook('trick-mirror', 'Trick Mirror', 'Jia Tolentino', 2019, '9780525510567', 'essays-online-culture', 'Nine essays examine the stories and incentives shaping life online.', '#967da0'),
+  createBook('anthropocene-reviewed', 'The Anthropocene Reviewed', 'John Green', 2021, '9780525555216', 'essays-online-culture', 'A series of personal essays reviews everyday things against the scale of human history.', '#618f83'),
   createBook('fifth-season', 'The Fifth Season', 'N. K. Jemisin', 2015, '9780316229296', 'algorithmic-blockbusters', 'On a world in ecological collapse, three lives converge around a hidden power.', '#7d718e'),
   createBook('tomorrow-tomorrow-tomorrow', 'Tomorrow, and Tomorrow, and Tomorrow', 'Gabrielle Zevin', 2022, '9780593321201', 'algorithmic-blockbusters', 'Two longtime friends build games together and keep finding new ways to begin again.', '#5d8a84'),
   createBook('song-of-achilles', 'The Song of Achilles', 'Madeline Miller', 2011, '9780062060624', 'algorithmic-blockbusters', 'A reimagining of the Iliad told through the bond between Patroclus and Achilles.', '#b47c66'),
