@@ -15,6 +15,7 @@ type AccountSheetProps = {
   onResendEmail: (email: string) => Promise<void>;
   onSignIn: (email: string) => Promise<void>;
   onSignOut: () => Promise<void>;
+  onDeleteAccount: () => Promise<void>;
   onRetry: () => void;
 };
 
@@ -25,7 +26,7 @@ function getEmailErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
-export default function AccountSheet({ visible, email, pendingEmail, isAnonymous, sessionReady, syncError, onClose, onLinkEmail, onResendEmail, onSignIn, onSignOut, onRetry }: AccountSheetProps) {
+export default function AccountSheet({ visible, email, pendingEmail, isAnonymous, sessionReady, syncError, onClose, onLinkEmail, onResendEmail, onSignIn, onSignOut, onDeleteAccount, onRetry }: AccountSheetProps) {
   const [address, setAddress] = useState('');
   const [authMode, setAuthMode] = useState<'link' | 'signin'>('link');
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -36,6 +37,9 @@ export default function AccountSheet({ visible, email, pendingEmail, isAnonymous
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -45,6 +49,8 @@ export default function AccountSheet({ visible, email, pendingEmail, isAnonymous
     setSignInSentTo(null);
     setErrorMessage('');
     setConfirmingSignOut(false);
+    setConfirmingDelete(false);
+    setDeleteConfirmation('');
   }, [visible, email, pendingEmail]);
 
   const currentPendingEmail = pendingEmail ?? sentTo;
@@ -112,6 +118,19 @@ export default function AccountSheet({ visible, email, pendingEmail, isAnonymous
     }
   };
 
+  const deleteAccount = async () => {
+    if (deleteConfirmation !== 'DELETE' || isDeleting) return;
+    setIsDeleting(true);
+    setErrorMessage('');
+    try {
+      await onDeleteAccount();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not delete the account.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -119,7 +138,7 @@ export default function AccountSheet({ visible, email, pendingEmail, isAnonymous
         <View accessibilityViewIsModal style={styles.sheet}>
           <View style={styles.header}>
             <View style={styles.headerIcon}><Mail color="#2e6d58" size={18} /></View>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close account panel" onPress={onClose} style={styles.closeButton}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close account panel" disabled={isDeleting} onPress={onClose} style={styles.closeButton}>
               <X color="#65736a" size={18} />
             </Pressable>
           </View>
@@ -227,14 +246,17 @@ export default function AccountSheet({ visible, email, pendingEmail, isAnonymous
               <Text style={styles.eyebrow}>YOUR ACCOUNT</Text>
               <Text style={styles.title}>Shelf linked</Text>
               <Text style={styles.description}>{email || 'Your email is linked to this shelf.'}</Text>
-              {!confirmingSignOut ? (
+              {!confirmingSignOut && !confirmingDelete ? (
                 <>
                   <Text style={styles.footnote}>Your books and reading history are saved to this account.</Text>
                   <Pressable accessibilityRole="button" onPress={() => setConfirmingSignOut(true)} style={styles.signOutButton}>
                     <Text style={styles.signOutLabel}>SIGN OUT</Text>
                   </Pressable>
+                  <Pressable accessibilityRole="button" onPress={() => { setConfirmingDelete(true); setErrorMessage(''); }} style={styles.deleteAccountButton}>
+                    <Text style={styles.deleteAccountLabel}>DELETE ACCOUNT AND DATA</Text>
+                  </Pressable>
                 </>
-              ) : (
+              ) : confirmingSignOut ? (
                 <>
                   <View style={styles.signOutNotice}>
                     <Text style={styles.noticeTitle}>Sign out on this device?</Text>
@@ -246,6 +268,38 @@ export default function AccountSheet({ visible, email, pendingEmail, isAnonymous
                     </Pressable>
                     <Pressable accessibilityRole="button" disabled={isSigningOut} onPress={signOut} style={[styles.confirmSignOutButton, isSigningOut && styles.submitDisabled]}>
                       <Text style={styles.confirmSignOutLabel}>{isSigningOut ? 'SIGNING OUT…' : 'SIGN OUT'}</Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.deleteNotice}>
+                    <Text style={styles.deleteNoticeTitle}>Permanently delete this account?</Text>
+                    <Text style={styles.deleteNoticeBody}>Your account, saved books, reading history, and snoozes will be deleted and cannot be recovered. Type DELETE to confirm.</Text>
+                  </View>
+                  <TextInput
+                    accessibilityLabel="Type DELETE to confirm account deletion"
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    editable={!isDeleting}
+                    onChangeText={setDeleteConfirmation}
+                    placeholder="DELETE"
+                    placeholderTextColor="#9ba59d"
+                    style={styles.input}
+                    value={deleteConfirmation}
+                  />
+                  <View style={styles.signOutActions}>
+                    <Pressable accessibilityRole="button" disabled={isDeleting} onPress={() => { setConfirmingDelete(false); setDeleteConfirmation(''); }} style={styles.cancelButton}>
+                      <Text style={styles.cancelLabel}>CANCEL</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: deleteConfirmation !== 'DELETE' || isDeleting }}
+                      disabled={deleteConfirmation !== 'DELETE' || isDeleting}
+                      onPress={deleteAccount}
+                      style={[styles.deleteConfirmButton, (deleteConfirmation !== 'DELETE' || isDeleting) && styles.submitDisabled]}
+                    >
+                      <Text style={styles.confirmSignOutLabel}>{isDeleting ? 'DELETING…' : 'DELETE PERMANENTLY'}</Text>
                     </Pressable>
                   </View>
                 </>
@@ -285,10 +339,16 @@ const styles = StyleSheet.create({
   modeSwitchLabel: { color: '#2f725b', fontSize: 11, fontWeight: '700' },
   signOutButton: { alignSelf: 'flex-start', marginTop: 18, paddingVertical: 8, paddingHorizontal: 2 },
   signOutLabel: { color: '#a34c43', fontSize: 9, fontWeight: '800', letterSpacing: 0.7 },
+  deleteAccountButton: { alignSelf: 'flex-start', marginTop: 8, paddingVertical: 8, paddingHorizontal: 2 },
+  deleteAccountLabel: { color: '#a34c43', fontSize: 9, fontWeight: '800', letterSpacing: 0.7 },
   signOutNotice: { marginTop: 18, padding: 13, borderRadius: 4, backgroundColor: '#f5ebe7' },
   signOutActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 12 },
   cancelButton: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 13 },
   cancelLabel: { color: '#66746b', fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
   confirmSignOutButton: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 4, backgroundColor: '#a34c43' },
   confirmSignOutLabel: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
+  deleteNotice: { marginTop: 18, padding: 13, borderRadius: 4, backgroundColor: '#f5ebe7' },
+  deleteNoticeTitle: { color: '#8f3933', fontSize: 12, fontWeight: '700' },
+  deleteNoticeBody: { color: '#805e58', fontSize: 12, lineHeight: 18, marginTop: 4 },
+  deleteConfirmButton: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 4, backgroundColor: '#a9443d' },
 });

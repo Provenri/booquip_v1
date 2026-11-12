@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Svg, { Circle, G, Path, Text as SvgText } from 'react-native-svg';
-import { SUBCATEGORIES, type SubcategoryId } from '@/lib/books';
+import type { Subcategory, SubcategoryId } from '@/lib/books';
 import { getStopLanding, ROULETTE_SEGMENT_ANGLE } from '@/lib/roulette';
 
 type CategoryRouletteProps = {
+  categories: Subcategory[];
   remainingCounts: Record<SubcategoryId, number>;
   selectedId: SubcategoryId | null;
   disabled?: boolean;
@@ -33,6 +34,7 @@ function segmentPath(index: number) {
 }
 
 export default function CategoryRoulette({
+  categories,
   remainingCounts,
   selectedId,
   disabled = false,
@@ -49,7 +51,7 @@ export default function CategoryRoulette({
   const [reduceMotion, setReduceMotion] = useState(false);
   const isSpinning = wheelState !== 'idle';
   const canPressCenter = !disabled && wheelState !== 'stopping';
-  const selectedCategory = SUBCATEGORIES.find((category) => category.id === selectedId);
+  const selectedCategory = categories.find((category) => category.id === selectedId);
 
   useEffect(() => {
     let active = true;
@@ -64,12 +66,21 @@ export default function CategoryRoulette({
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedId || wheelState !== 'idle') return;
+    const selectedIndex = categories.findIndex((category) => category.id === selectedId);
+    if (selectedIndex < 0) return;
+    const targetRotation = (360 - selectedIndex * SEGMENT_ANGLE) % 360;
+    normalizedRotation.current = targetRotation;
+    rotation.setValue(targetRotation);
+  }, [categories, selectedId, rotation, wheelState]);
+
   const startSpin = () => {
     if (disabled || wheelState !== 'idle') return;
 
     if (reduceMotion) {
-      const result = SUBCATEGORIES[Math.floor(Math.random() * SUBCATEGORIES.length)];
-      const resultIndex = SUBCATEGORIES.findIndex((category) => category.id === result.id);
+      const result = categories[Math.floor(Math.random() * categories.length)];
+      const resultIndex = categories.findIndex((category) => category.id === result.id);
       const targetRotation = (360 - resultIndex * SEGMENT_ANGLE) % 360;
       normalizedRotation.current = targetRotation;
       rotation.setValue(targetRotation);
@@ -118,7 +129,7 @@ export default function CategoryRoulette({
         if (finished) {
           normalizedRotation.current = landing.rotation % 360;
           rotation.setValue(normalizedRotation.current);
-          onSelect(SUBCATEGORIES[landing.index].id);
+          onSelect(categories[landing.index].id);
         }
         setWheelState('idle');
       });
@@ -141,7 +152,7 @@ export default function CategoryRoulette({
           <View style={styles.pointer} />
           <Animated.View style={{ transform: [{ rotate: rotation.interpolate({ inputRange: [0, 360], outputRange: ['0deg', '360deg'], extrapolate: 'extend' }) }] }}>
             <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
-              {SUBCATEGORIES.map((category, index) => {
+              {categories.map((category, index) => {
                 const isSelected = selectedId === category.id;
                 const labelPosition = pointAt(index * SEGMENT_ANGLE - 90, 102);
                 return (
@@ -184,14 +195,14 @@ export default function CategoryRoulette({
           </Pressable>
           </View>
         </View>
-        <Text style={styles.wheelCaption}>8 SHELVES · {Object.values(remainingCounts).reduce((total, count) => total + count, 0)} BOOKS LEFT</Text>
+        <Text style={styles.wheelCaption}>{categories.length} SHELVES · {Object.values(remainingCounts).reduce((total, count) => total + count, 0)} BOOKS LEFT</Text>
       </View>
 
       <View style={[styles.categoryColumn, !isWide && styles.categoryColumnCompact]}>
-        <Text style={styles.listEyebrow}>THE EIGHT SHELVES</Text>
+        <Text style={styles.listEyebrow}>THE {categories.length} SHELVES</Text>
         <Text style={styles.listTitle}>The wheel lands here.</Text>
         <View style={styles.categoryGrid}>
-          {SUBCATEGORIES.map((category, index) => {
+          {categories.map((category, index) => {
             const isSelected = selectedId === category.id;
             return (
               <View

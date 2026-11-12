@@ -1,1 +1,13 @@
 project_id = "booquip"
+
+[functions.book-on-ramp]
+verify_jwt = true
+
+[functions.delete-user-account]
+verify_jwt = true
+
+[functions.social-ghostwriter]
+verify_jwt = true
+
+[functions.trend-interceptor]
+verify_jwt = true

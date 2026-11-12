@@ -55,3 +55,15 @@ export async function saveUserSwipe(
 
   if (error) throw error;
 }
+
+export async function deleteUserSwipe(userId: string, bookId: string) {
+  if (!supabase) return;
+
+  const { error } = await supabase
+    .from('user_swipes')
+    .delete()
+    .eq('user_id', userId)
+    .eq('book_id', bookId);
+
+  if (error) throw error;
+}

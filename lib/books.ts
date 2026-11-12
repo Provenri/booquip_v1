@@ -20,22 +20,34 @@ export type Book = {
   subcategory: SubcategoryId;
   note: string;
   color: string;
+  adaptations?: BookAdaptation[];
 };
 
-export const PILLARS: { id: Pillar; label: string; detail: string; color: string }[] = [
-  { id: 'screen', label: 'Screen', detail: 'Stories made for the screen', color: '#d97452' },
-  { id: 'civilization', label: 'Civilization', detail: 'Ideas that shaped our world', color: '#477d6c' },
-  { id: 'digital', label: 'Digital', detail: 'Books finding a new audience', color: '#6177a2' },
-];
+export type PillarInfo = { id: Pillar; label: string; detail: string; color: string };
 
-export const SUBCATEGORIES: {
+export type Subcategory = {
   id: SubcategoryId;
   pillar: Pillar;
   label: string;
   shortLabel: string;
   description: string;
   color: string;
-}[] = [
+};
+
+export type BookAdaptation = {
+  title: string;
+  format: 'film' | 'series';
+  releaseYear: number;
+  platform: string | null;
+};
+
+export const PILLARS: PillarInfo[] = [
+  { id: 'screen', label: 'Screen', detail: 'Stories made for the screen', color: '#d97452' },
+  { id: 'civilization', label: 'Civilization', detail: 'Ideas that shaped our world', color: '#477d6c' },
+  { id: 'digital', label: 'Digital', detail: 'Books finding a new audience', color: '#6177a2' },
+];
+
+export const SUBCATEGORIES: Subcategory[] = [
   { id: 'launchpad', pillar: 'screen', label: 'The Launchpad', shortLabel: 'Launchpad', description: 'Books with screen adaptations on the horizon.', color: '#d97452' },
   { id: 'oscar-gold-standard', pillar: 'screen', label: 'Oscar Gold Standard', shortLabel: 'Oscar Gold', description: 'Books behind award-winning films.', color: '#bd5d48' },
   { id: 'streaming-universe', pillar: 'screen', label: 'Streaming Universe', shortLabel: 'Streaming', description: 'Stories expanded into multi-season television.', color: '#ed9b67' },
@@ -55,6 +67,7 @@ const createBook = (
   subcategory: SubcategoryId,
   note: string,
   color: string,
+  adaptations: BookAdaptation[] = [],
 ): Book => ({
   id,
   title,
@@ -65,6 +78,7 @@ const createBook = (
   subcategory,
   note,
   color,
+  adaptations,
 });
 
 export const BOOKS: Book[] = [

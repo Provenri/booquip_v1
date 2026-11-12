@@ -8,13 +8,13 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import {
-  ArrowDown,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
@@ -22,26 +22,36 @@ import {
   BookOpen,
   Check,
   Clock3,
-  RotateCcw,
+  Tv,
+  MessageCircle,
+  Share2,
+  Search,
   Sparkles,
   UserRound,
+  RotateCcw,
+  X,
 } from 'lucide-react-native';
 import { BOOKS, PILLARS, SUBCATEGORIES, type Book, type Pillar, type SubcategoryId } from '@/lib/books';
 import { linkCurrentUserEmail, resendCurrentUserEmailChange, signInWithEmail } from '@/lib/auth';
 import AccountSheet from '@/components/AccountSheet';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { getOrCreateAnonymousUser, loadUserSwipes, saveUserSwipe } from '@/lib/swipes';
+import { deleteUserSwipe, getOrCreateAnonymousUser, loadUserSwipes, saveUserSwipe } from '@/lib/swipes';
+import { getBookOnRamp } from '@/lib/onramp';
+import { generateSocialDraft } from '@/lib/socialGhostwriter';
+import SocialDraftSheet from '@/components/SocialDraftSheet';
+import TrendReplySheet from '@/components/TrendReplySheet';
+import { generateTrendReply } from '@/lib/trendInterceptor';
+import { loadCatalog, loadTaxonomy } from '@/lib/catalog';
 import CategoryRoulette from '@/components/CategoryRoulette';
 
-type Screen = 'discover' | 'tbr' | 'read';
-type Action = 'tbr' | 'read' | 'freeze' | 'next';
+type Screen = 'discover' | 'tbr' | 'read' | 'snoozed';
+type Action = 'tbr' | 'read' | 'freeze';
 type SyncStatus = 'local' | 'loading' | 'connected' | 'error';
 
 const ACTIONS: { id: Action; label: string; hint: string; color: string; icon: typeof ArrowRight }[] = [
   { id: 'tbr', label: 'Save to TBR', hint: 'Right', color: '#337e69', icon: Bookmark },
   { id: 'read', label: 'Already read', hint: 'Up', color: '#476da1', icon: Check },
   { id: 'freeze', label: 'Snooze 90 days', hint: 'Left', color: '#8a6e46', icon: Clock3 },
-  { id: 'next', label: 'Next book', hint: 'Down', color: '#626b65', icon: ArrowDown },
 ];
 
 function NavItem({
@@ -51,6 +61,7 @@ function NavItem({
   disabled = false,
   onPress,
   icon: Icon,
+  compact = false,
 }: {
   label: string;
   count?: number;
@@ -58,6 +69,7 @@ function NavItem({
   disabled?: boolean;
   onPress: () => void;
   icon: typeof BookOpen;
+  compact?: boolean;
 }) {
   return (
     <Pressable
@@ -65,10 +77,10 @@ function NavItem({
       accessibilityState={{ selected: active }}
       disabled={disabled}
       onPress={onPress}
-      style={[styles.navItem, disabled && styles.navItemDisabled, active && styles.navItemActive]}
+      style={[styles.navItem, compact && styles.navItemCompact, disabled && styles.navItemDisabled, active && styles.navItemActive]}
     >
       <Icon color={active ? '#243b35' : '#9da9a1'} size={18} strokeWidth={1.8} />
-      <Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text>
+      <Text style={[styles.navLabel, compact && styles.navLabelCompact, active && styles.navLabelActive]}>{label}</Text>
       {count !== undefined && <Text style={[styles.navCount, active && styles.navLabelActive]}>{count}</Text>}
     </Pressable>
   );
@@ -80,10 +92,18 @@ export default function DiscoverScreen() {
   const [screen, setScreen] = useState<Screen>('discover');
   const [tbrIds, setTbrIds] = useState<string[]>([]);
   const [readIds, setReadIds] = useState<string[]>([]);
+  const [books, setBooks] = useState<Book[]>(BOOKS);
+  const [pillars, setPillars] = useState(PILLARS);
+  const [subcategories, setSubcategories] = useState(SUBCATEGORIES);
   const [frozenUntil, setFrozenUntil] = useState<Record<string, number>>({});
-  const [deferredIds, setDeferredIds] = useState<string[]>([]);
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<SubcategoryId | null>(null);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [socialDraftBook, setSocialDraftBook] = useState<Book | null>(null);
+  const [isTrendReplyVisible, setIsTrendReplyVisible] = useState(false);
+  const [onRampText, setOnRampText] = useState('');
+  const [onRampError, setOnRampError] = useState('');
+  const [isOnRampLoading, setIsOnRampLoading] = useState(false);
   const [coverFailed, setCoverFailed] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
@@ -96,29 +116,37 @@ export default function DiscoverScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const drag = useRef(new Animated.ValueXY()).current;
   const actionRef = useRef<(action: Action) => void>(() => undefined);
+  const onRampRequestId = useRef(0);
 
   const completedIds = new Set([...tbrIds, ...readIds]);
-  const availableBooks = BOOKS.filter(
+  const availableBooks = books.filter(
     (book) =>
       !completedIds.has(book.id) &&
-      !deferredIds.includes(book.id) &&
       (!frozenUntil[book.id] || frozenUntil[book.id] <= Date.now()),
   );
   const remainingCounts = Object.fromEntries(
-    SUBCATEGORIES.map((category) => [
+    subcategories.map((category) => [
       category.id,
       availableBooks.filter((availableBook) => availableBook.subcategory === category.id).length,
     ]),
   ) as Record<SubcategoryId, number>;
-  const book = selectedBookId ? BOOKS.find((item) => item.id === selectedBookId) : undefined;
+  const frozenBooks = books
+    .filter((item) => (frozenUntil[item.id] ?? 0) > Date.now())
+    .sort((left, right) => frozenUntil[left.id] - frozenUntil[right.id]);
+  const book = selectedBookId ? books.find((item) => item.id === selectedBookId) : undefined;
   const currentSubcategory = selectedSubcategoryId
-    ? SUBCATEGORIES.find((category) => category.id === selectedSubcategoryId)
+    ? subcategories.find((category) => category.id === selectedSubcategoryId)
     : undefined;
   const currentPillar = book
-    ? PILLARS.find((pillar) => pillar.id === book.pillar)
+    ? pillars.find((pillar) => pillar.id === book.pillar)
     : currentSubcategory
-      ? PILLARS.find((pillar) => pillar.id === currentSubcategory.pillar)
+      ? pillars.find((pillar) => pillar.id === currentSubcategory.pillar)
       : undefined;
+  const searchResults = searchQuery.trim()
+    ? availableBooks.filter((availableBook) =>
+        `${availableBook.title} ${availableBook.author}`.toLowerCase().includes(searchQuery.trim().toLowerCase()),
+      ).slice(0, 5)
+    : [];
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -130,8 +158,17 @@ export default function DiscoverScreen() {
       try {
         const activeUser = await getOrCreateAnonymousUser();
         if (!activeUser) throw new Error('Supabase is not configured.');
-        const swipes = await loadUserSwipes(activeUser.id);
+        const [swipes, catalog, taxonomy] = await Promise.all([
+          loadUserSwipes(activeUser.id),
+          loadCatalog().catch(() => [] as Book[]),
+          loadTaxonomy().catch(() => null),
+        ]);
         if (!active) return;
+        if (catalog.length > 0) setBooks(catalog);
+        if (taxonomy?.pillars.length === PILLARS.length && taxonomy.subcategories.length === SUBCATEGORIES.length) {
+          setPillars(taxonomy.pillars);
+          setSubcategories(taxonomy.subcategories);
+        }
 
         const restoredTbr: string[] = [];
         const restoredRead: string[] = [];
@@ -207,7 +244,28 @@ export default function DiscoverScreen() {
 
   useEffect(() => {
     setCoverFailed(false);
+    onRampRequestId.current += 1;
+    setOnRampText('');
+    setOnRampError('');
+    setIsOnRampLoading(false);
   }, [book?.id]);
+
+  const handleGetOnRamp = async () => {
+    if (!book || isOnRampLoading) return;
+    const requestId = ++onRampRequestId.current;
+    setIsOnRampLoading(true);
+    setOnRampError('');
+    try {
+      const result = await getBookOnRamp(book);
+      if (requestId === onRampRequestId.current) setOnRampText(result);
+    } catch (error) {
+      if (requestId === onRampRequestId.current) {
+        setOnRampError(error instanceof Error ? error.message : 'Could not generate the book on-ramp.');
+      }
+    } finally {
+      if (requestId === onRampRequestId.current) setIsOnRampLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -216,7 +274,6 @@ export default function DiscoverScreen() {
         ArrowRight: 'tbr',
         ArrowUp: 'read',
         ArrowLeft: 'freeze',
-        ArrowDown: 'next',
       };
       const action = actionByKey[event.key];
       if (action) {
@@ -236,10 +293,6 @@ export default function DiscoverScreen() {
     if (action === 'read') setReadIds((ids) => [...ids, selectedBook.id]);
     if (action === 'freeze') {
       setFrozenUntil((items) => ({ ...items, [selectedBook.id]: Date.now() + 90 * 24 * 60 * 60 * 1000 }));
-    }
-    if (action === 'next') {
-      setDeferredIds((ids) => [...ids, selectedBook.id]);
-      return;
     }
     if (!userId || !isSupabaseConfigured) return;
 
@@ -273,12 +326,16 @@ export default function DiscoverScreen() {
           Animated.spring(drag, { toValue: { x: 0, y: 0 }, useNativeDriver: false, friction: 7 }).start();
           return;
         }
+        if (!horizontal && gesture.dy > 0) {
+          Animated.spring(drag, { toValue: { x: 0, y: 0 }, useNativeDriver: false, friction: 7 }).start();
+          return;
+        }
         const action: Action = horizontal
           ? gesture.dx > 0 ? 'tbr' : 'freeze'
-          : gesture.dy < 0 ? 'read' : 'next';
+          : 'read';
         const destination = {
           x: horizontal ? Math.sign(gesture.dx) * 460 : gesture.dx,
-          y: horizontal ? gesture.dy : Math.sign(gesture.dy) * 460,
+          y: horizontal ? gesture.dy : -460,
         };
         Animated.timing(drag, { toValue: destination, duration: 150, useNativeDriver: false }).start(({ finished }) => {
           if (!finished) return;
@@ -292,6 +349,11 @@ export default function DiscoverScreen() {
     }),
   ).current;
 
+  const revealBook = (chosenBook: Book) => {
+    setSelectedSubcategoryId(chosenBook.subcategory);
+    setSelectedBookId(chosenBook.id);
+  };
+
   const selectSubcategory = (subcategoryId: SubcategoryId) => {
     const categoryBooks = availableBooks.filter((availableBook) => availableBook.subcategory === subcategoryId);
     setSelectedSubcategoryId(subcategoryId);
@@ -300,7 +362,87 @@ export default function DiscoverScreen() {
       return;
     }
     const chosenBook = categoryBooks[Math.floor(Math.random() * categoryBooks.length)];
-    setSelectedBookId(chosenBook.id);
+    revealBook(chosenBook);
+  };
+
+  const handleSurpriseMe = () => {
+    const otherAvailableBooks = availableBooks.filter((availableBook) => availableBook.id !== selectedBookId);
+    const booksToChooseFrom = otherAvailableBooks.length > 0 ? otherAvailableBooks : availableBooks;
+    const chosenBook = booksToChooseFrom[Math.floor(Math.random() * booksToChooseFrom.length)];
+    if (!chosenBook) return;
+    setSearchQuery('');
+    revealBook(chosenBook);
+  };
+
+  const handleWakeBook = (bookId: string) => {
+    const snoozedBook = books.find((item) => item.id === bookId);
+    const previousFreezeUntil = frozenUntil[bookId];
+    if (!snoozedBook || previousFreezeUntil === undefined || isSaving) return;
+    if (isSupabaseConfigured && !userId) {
+      setSyncMessage('Your shelf is not connected. Reconnect before waking this book.');
+      setSyncStatus('error');
+      return;
+    }
+
+    const wakeTimestamp = new Date(Date.now() - 1000).toISOString();
+    setFrozenUntil((items) => ({ ...items, [bookId]: Date.parse(wakeTimestamp) }));
+    setSelectedSubcategoryId(snoozedBook.subcategory);
+    setSelectedBookId(snoozedBook.id);
+    setSearchQuery('');
+    setScreen('discover');
+
+    if (!userId || !isSupabaseConfigured) return;
+    setIsSaving(true);
+    void saveUserSwipe(userId, bookId, 'frozen', wakeTimestamp)
+      .then(() => {
+        setSyncMessage('');
+        setSyncStatus('connected');
+      })
+      .catch(() => {
+        setFrozenUntil((items) => ({ ...items, [bookId]: previousFreezeUntil }));
+        setSelectedBookId(null);
+        setScreen('snoozed');
+        setSyncMessage('Could not wake this book. The snooze is still active; try again.');
+        setSyncStatus('error');
+      })
+      .finally(() => setIsSaving(false));
+  };
+
+  const handleRemoveFromShelf = (bookId: string) => {
+    const shelfBook = books.find((item) => item.id === bookId);
+    const sourceScreen = screen;
+    const wasInTbr = tbrIds.includes(bookId);
+    const wasRead = readIds.includes(bookId);
+    if (!shelfBook || (!wasInTbr && !wasRead) || isSaving) return;
+    if (isSupabaseConfigured && !userId) {
+      setSyncMessage('Your shelf is not connected. Reconnect before returning this book to discovery.');
+      setSyncStatus('error');
+      return;
+    }
+
+    setTbrIds((ids) => ids.filter((id) => id !== bookId));
+    setReadIds((ids) => ids.filter((id) => id !== bookId));
+    setSelectedSubcategoryId(shelfBook.subcategory);
+    setSelectedBookId(shelfBook.id);
+    setSearchQuery('');
+    setScreen('discover');
+
+    if (!userId || !isSupabaseConfigured) return;
+    setIsSaving(true);
+    void deleteUserSwipe(userId, bookId)
+      .then(() => {
+        setSyncMessage('');
+        setSyncStatus('connected');
+      })
+      .catch(() => {
+        if (wasInTbr) setTbrIds((ids) => ids.includes(bookId) ? ids : [...ids, bookId]);
+        if (wasRead) setReadIds((ids) => ids.includes(bookId) ? ids : [...ids, bookId]);
+        setSelectedBookId(null);
+        setScreen(sourceScreen);
+        setSyncMessage('Could not return this book to discovery. It is still on your shelf; try again.');
+        setSyncStatus('error');
+      })
+      .finally(() => setIsSaving(false));
   };
 
   const handleLinkEmail = async (email: string) => {
@@ -334,17 +476,44 @@ export default function DiscoverScreen() {
     setTbrIds([]);
     setReadIds([]);
     setFrozenUntil({});
-    setDeferredIds([]);
     setSelectedBookId(null);
     setSelectedSubcategoryId(null);
     setIsAccountSheetVisible(false);
     setAuthRetryCount((count) => count + 1);
   };
 
+  const handleDeleteAccount = async () => {
+    if (!supabase || !userId || isAnonymous) throw new Error('Only a linked account can be deleted.');
+    const { data, error } = await supabase.functions.invoke('delete-user-account');
+    if (error) throw error;
+    if (data?.success !== true) throw new Error('Account deletion could not be confirmed.');
+
+    const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+    if (signOutError) throw signOutError;
+    setUserId(null);
+    setAccountEmail(null);
+    setPendingEmail(null);
+    setIsAnonymous(true);
+    setTbrIds([]);
+    setReadIds([]);
+    setFrozenUntil({});
+    setSelectedBookId(null);
+    setSelectedSubcategoryId(null);
+    setSearchQuery('');
+    setSocialDraftBook(null);
+    setIsTrendReplyVisible(false);
+    setScreen('discover');
+    setIsAccountSheetVisible(false);
+    setAuthRetryCount((count) => count + 1);
+  };
+
+  const readBooks = books.filter((item) => readIds.includes(item.id));
   const shelfBooks = screen === 'tbr'
-    ? BOOKS.filter((item) => tbrIds.includes(item.id))
-    : BOOKS.filter((item) => readIds.includes(item.id));
-  const screenTitle = screen === 'discover' ? 'Find your next read' : screen === 'tbr' ? 'Your reading list' : 'Books you’ve read';
+    ? books.filter((item) => tbrIds.includes(item.id))
+    : screen === 'read'
+      ? readBooks
+      : frozenBooks;
+  const screenTitle = screen === 'discover' ? 'Find your next read' : screen === 'tbr' ? 'Your reading list' : screen === 'read' ? 'Books you’ve read' : 'Snoozed for later';
   const syncLabel = syncStatus === 'connected'
     ? isAnonymous ? 'SHELF SYNC ON · GUEST' : `SHELF SYNC ON · ${accountEmail ?? 'LINKED ACCOUNT'}`
     : syncStatus === 'loading'
@@ -366,6 +535,7 @@ export default function DiscoverScreen() {
             <NavItem label="Discover" active={screen === 'discover'} onPress={() => setScreen('discover')} icon={Sparkles} />
             <NavItem label="To be read" count={tbrIds.length} active={screen === 'tbr'} onPress={() => setScreen('tbr')} icon={Bookmark} />
             <NavItem label="Already read" count={readIds.length} active={screen === 'read'} onPress={() => setScreen('read')} icon={Check} />
+            <NavItem label="Snoozed" count={frozenBooks.length} active={screen === 'snoozed'} onPress={() => setScreen('snoozed')} icon={Clock3} />
             <NavItem
               label={isAnonymous ? 'Link your shelf' : 'Account'}
               active={false}
@@ -375,7 +545,7 @@ export default function DiscoverScreen() {
             />
             <View style={styles.sidebarFooter}>
               <Text style={styles.sidebarFooterLabel}>A SMALL STACK, A GOOD START</Text>
-              <Text style={styles.sidebarFooterText}>Twenty-four curated titles across eight shelves.</Text>
+              <Text style={styles.sidebarFooterText}>{books.length} curated titles across {subcategories.length} shelves.</Text>
             </View>
           </View>
         )}
@@ -401,9 +571,10 @@ export default function DiscoverScreen() {
 
           {!isWide && (
             <View style={styles.mobileNav}>
-              <NavItem label="Discover" active={screen === 'discover'} onPress={() => setScreen('discover')} icon={Sparkles} />
-              <NavItem label="TBR" count={tbrIds.length} active={screen === 'tbr'} onPress={() => setScreen('tbr')} icon={Bookmark} />
-              <NavItem label="Read" count={readIds.length} active={screen === 'read'} onPress={() => setScreen('read')} icon={Check} />
+              <NavItem compact label="Discover" active={screen === 'discover'} onPress={() => setScreen('discover')} icon={Sparkles} />
+              <NavItem compact label="TBR" count={tbrIds.length} active={screen === 'tbr'} onPress={() => setScreen('tbr')} icon={Bookmark} />
+              <NavItem compact label="Read" count={readIds.length} active={screen === 'read'} onPress={() => setScreen('read')} icon={Check} />
+              <NavItem compact label="Snoozed" count={frozenBooks.length} active={screen === 'snoozed'} onPress={() => setScreen('snoozed')} icon={Clock3} />
             </View>
           )}
 
@@ -422,12 +593,78 @@ export default function DiscoverScreen() {
 
             {screen === 'discover' ? (
               <>
+                <View style={styles.searchSection}>
+                  <View style={styles.searchInputWrap}>
+                    <Search color="#718077" size={17} />
+                    <TextInput
+                      accessibilityLabel="Search books by title or author"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      onChangeText={setSearchQuery}
+                      onSubmitEditing={() => {
+                        if (searchResults.length === 1) {
+                          const result = searchResults[0];
+                          setSelectedSubcategoryId(result.subcategory);
+                          setSelectedBookId(result.id);
+                          setSearchQuery('');
+                        }
+                      }}
+                      placeholder="Find a title or author"
+                      placeholderTextColor="#8d9990"
+                      returnKeyType="search"
+                      style={styles.searchInput}
+                      value={searchQuery}
+                    />
+                    {searchQuery.length > 0 && (
+                      <Pressable accessibilityRole="button" accessibilityLabel="Clear book search" onPress={() => setSearchQuery('')} style={styles.searchClear}>
+                        <X color="#718077" size={16} />
+                      </Pressable>
+                    )}
+                  </View>
+                  {searchQuery.trim().length > 0 && (
+                    <View style={styles.searchResults}>
+                      {searchResults.length > 0 ? searchResults.map((result) => (
+                        <Pressable
+                          key={result.id}
+                          accessibilityRole="button"
+                          disabled={syncStatus === 'loading'}
+                          onPress={() => {
+                            setSelectedSubcategoryId(result.subcategory);
+                            setSelectedBookId(result.id);
+                            setSearchQuery('');
+                          }}
+                          style={({ pressed }) => [styles.searchResult, pressed && styles.searchResultPressed]}
+                        >
+                          <View style={[styles.searchSwatch, { backgroundColor: result.color }]} />
+                          <View style={styles.searchResultText}>
+                            <Text style={styles.searchResultTitle}>{result.title}</Text>
+                            <Text style={styles.searchResultAuthor}>{result.author} · {result.year}</Text>
+                          </View>
+                          <Text style={styles.searchResultShelf}>{subcategories.find((category) => category.id === result.subcategory)?.shortLabel.toUpperCase()}</Text>
+                        </Pressable>
+                      )) : (
+                        <Text style={styles.searchEmpty}>No available titles match that search.</Text>
+                      )}
+                    </View>
+                  )}
+                </View>
+
                 <View style={styles.pillarHeader}>
                   <Text style={styles.sectionLabel}>THE EIGHT SHELVES</Text>
-                  <Text style={styles.stackCount}>{String(availableBooks.length).padStart(2, '0')} BOOKS AVAILABLE</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Surprise me with a book from any shelf"
+                    disabled={syncStatus === 'loading' || availableBooks.length === 0}
+                    onPress={handleSurpriseMe}
+                    style={({ pressed }) => [styles.surpriseButton, styles.surpriseButtonActive, (syncStatus === 'loading' || availableBooks.length === 0) && styles.actionDisabled, pressed && styles.surpriseButtonPressed]}
+                  >
+                    <Sparkles color="#fffaf6" size={14} />
+                    <Text style={styles.surpriseText}>SURPRISE ME</Text>
+                  </Pressable>
                 </View>
 
                 <CategoryRoulette
+                  categories={subcategories}
                   remainingCounts={remainingCounts}
                   selectedId={selectedSubcategoryId}
                   disabled={syncStatus === 'loading'}
@@ -481,6 +718,41 @@ export default function DiscoverScreen() {
                       <View style={styles.infoRule} />
                       <Text style={styles.noteLabel}>THE SHORT TAKE</Text>
                       <Text style={styles.bookNote}>{book.note}</Text>
+                      <View style={styles.adaptationSection}>
+                        <View style={styles.adaptationHeader}>
+                          <Tv color="#68786e" size={14} />
+                          <Text style={styles.noteLabel}>ON SCREEN</Text>
+                        </View>
+                        {book.adaptations?.length ? book.adaptations.map((adaptation) => (
+                          <View key={`${adaptation.title}-${adaptation.releaseYear}`} style={styles.adaptationRow}>
+                            <View style={styles.adaptationCopy}>
+                              <Text style={styles.adaptationTitle}>{adaptation.title}</Text>
+                              <Text style={styles.adaptationMeta}>
+                                {adaptation.format.toUpperCase()} · {adaptation.releaseYear}{adaptation.platform ? ` · ${adaptation.platform}` : ''}
+                              </Text>
+                            </View>
+                          </View>
+                        )) : (
+                          <Text style={styles.adaptationEmpty}>No adaptation details curated yet.</Text>
+                        )}
+                      </View>
+                      <View style={styles.onRampSection}>
+                        <View style={styles.onRampHeader}>
+                          <Text style={styles.noteLabel}>30-SECOND ON-RAMP</Text>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={onRampText ? 'Generate another book on-ramp' : 'Generate a 30-second book on-ramp'}
+                            disabled={isOnRampLoading || syncStatus === 'loading'}
+                            onPress={() => void handleGetOnRamp()}
+                            style={({ pressed }) => [styles.onRampButton, (isOnRampLoading || syncStatus === 'loading') && styles.actionDisabled, pressed && styles.actionPressed]}
+                          >
+                            <Sparkles color="#34755e" size={14} />
+                            <Text style={styles.onRampButtonText}>{isOnRampLoading ? 'THINKING…' : onRampText ? 'TRY AGAIN' : 'GET ON-RAMP'}</Text>
+                          </Pressable>
+                        </View>
+                        {onRampText ? <Text accessibilityLiveRegion="polite" style={styles.onRampText}>{onRampText}</Text> : null}
+                        {onRampError ? <Text accessibilityRole="alert" style={styles.onRampError}>{onRampError}</Text> : null}
+                      </View>
                       <View style={styles.cardFooter}>
                         <Text style={styles.catalogId}>BQ · {book.id.toUpperCase()}</Text>
                         <BookOpen color="#95a19a" size={17} strokeWidth={1.6} />
@@ -492,12 +764,6 @@ export default function DiscoverScreen() {
                     <View style={styles.emptyIcon}><BookOpen color="#3d735f" size={24} /></View>
                     <Text style={styles.emptyTitle}>This shelf is between books.</Text>
                     <Text style={styles.emptyCopy}>The wheel landed on {currentSubcategory?.label}. Spin again to find another shelf.</Text>
-                    {deferredIds.length > 0 && (
-                      <Pressable onPress={() => setDeferredIds([])} style={styles.resetButton}>
-                        <RotateCcw color="#285f4e" size={16} />
-                        <Text style={styles.resetButtonText}>Reset this stack</Text>
-                      </Pressable>
-                    )}
                   </View>
                 ) : null}
 
@@ -515,7 +781,7 @@ export default function DiscoverScreen() {
                         <View style={[styles.actionIcon, { backgroundColor: `${color}15` }]}>
                           {id === 'tbr' ? <ArrowRight color={color} size={19} /> : id === 'freeze' ? <ArrowLeft color={color} size={19} /> : <Icon color={color} size={19} />}
                         </View>
-                        <Text style={styles.actionLabel}>{label}</Text>
+                        <Text style={[styles.actionLabel, !isWide && styles.actionLabelMobile]}>{label}</Text>
                         {isWide && <Text style={styles.actionHint}>SWIPE {hint.toUpperCase()}</Text>}
                       </Pressable>
                     ))}
@@ -525,14 +791,24 @@ export default function DiscoverScreen() {
             ) : (
               <View style={styles.shelfView}>
                 <View style={styles.pillarHeader}>
-                  <Text style={styles.sectionLabel}>{screen === 'tbr' ? 'SAVED FOR LATER' : 'MARKED AS READ'}</Text>
+                  <Text style={styles.sectionLabel}>{screen === 'tbr' ? 'SAVED FOR LATER' : screen === 'read' ? 'MARKED AS READ' : 'SNOOZED FOR LATER'}</Text>
                   <Text style={styles.stackCount}>{String(shelfBooks.length).padStart(2, '0')} BOOKS</Text>
                 </View>
+                {screen === 'read' && readBooks.length > 0 && (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => setIsTrendReplyVisible(true)}
+                    style={({ pressed }) => [styles.trendEntryButton, pressed && styles.actionPressed]}
+                  >
+                    <MessageCircle color="#477d6c" size={16} />
+                    <Text style={styles.trendEntryLabel}>REPLY TO TREND</Text>
+                  </Pressable>
+                )}
                 {shelfBooks.length === 0 ? (
                   <View style={styles.emptyState}>
                     <View style={styles.emptyIcon}><BookOpen color="#3d735f" size={24} /></View>
-                    <Text style={styles.emptyTitle}>A shelf with room to grow.</Text>
-                    <Text style={styles.emptyCopy}>Books you sort in discovery will appear here.</Text>
+                    <Text style={styles.emptyTitle}>{screen === 'snoozed' ? 'Nothing on snooze.' : 'A shelf with room to grow.'}</Text>
+                    <Text style={styles.emptyCopy}>{screen === 'snoozed' ? 'Books you snooze will return to discovery after their 90-day break.' : 'Books you sort in discovery will appear here.'}</Text>
                     <Pressable onPress={() => setScreen('discover')} style={styles.resetButton}>
                       <Sparkles color="#285f4e" size={16} />
                       <Text style={styles.resetButtonText}>Discover books</Text>
@@ -541,14 +817,55 @@ export default function DiscoverScreen() {
                 ) : (
                   <View style={styles.shelfList}>
                     {shelfBooks.map((item, index) => (
-                      <View key={item.id} style={styles.shelfRow}>
+                      <View key={item.id} style={[styles.shelfRow, screen === 'snoozed' ? styles.snoozedShelfRow : styles.returnShelfRow]}>
                         <Text style={styles.shelfIndex}>{String(index + 1).padStart(2, '0')}</Text>
                         <View style={[styles.shelfSwatch, { backgroundColor: item.color }]} />
                         <View style={styles.shelfText}>
                           <Text style={styles.shelfTitle}>{item.title}</Text>
                           <Text style={styles.shelfAuthor}>{item.author} · {item.year}</Text>
                         </View>
-                        <Text style={styles.shelfPillar}>{PILLARS.find((pillar) => pillar.id === item.pillar)?.label.toUpperCase()}</Text>
+                        {screen === 'snoozed' ? (
+                          <Text style={[styles.shelfPillar, styles.shelfReturn]}>
+                            {`RETURNS ${new Date(frozenUntil[item.id]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).toUpperCase()}`}
+                          </Text>
+                        ) : isWide ? (
+                          <Text style={styles.shelfPillar}>{pillars.find((pillar) => pillar.id === item.pillar)?.label.toUpperCase()}</Text>
+                        ) : null}
+                        {screen === 'snoozed' && (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Wake ${item.title} and return it to discovery now`}
+                            disabled={isSaving}
+                            onPress={() => handleWakeBook(item.id)}
+                            style={({ pressed }) => [styles.wakeButton, isSaving && styles.actionDisabled, pressed && styles.actionPressed]}
+                          >
+                            <RotateCcw color="#8a6e46" size={15} />
+                            <Text style={styles.wakeButtonText}>WAKE</Text>
+                          </Pressable>
+                        )}
+                        {screen === 'read' && (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Draft a social post about ${item.title}`}
+                            onPress={() => setSocialDraftBook(item)}
+                            style={({ pressed }) => [styles.draftPostButton, pressed && styles.actionPressed]}
+                          >
+                            <Share2 color="#477d6c" size={14} />
+                            <Text style={styles.draftPostButtonText}>DRAFT</Text>
+                          </Pressable>
+                        )}
+                        {screen !== 'snoozed' && (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Remove ${item.title} from this shelf and return it to discovery`}
+                            disabled={isSaving || syncStatus === 'loading'}
+                            onPress={() => handleRemoveFromShelf(item.id)}
+                            style={({ pressed }) => [styles.returnBookButton, isSaving && styles.actionDisabled, pressed && styles.actionPressed]}
+                          >
+                            <RotateCcw color="#34755e" size={14} />
+                            <Text style={styles.returnBookButtonText}>RETURN</Text>
+                          </Pressable>
+                        )}
                       </View>
                     ))}
                   </View>
@@ -575,10 +892,23 @@ export default function DiscoverScreen() {
         onResendEmail={handleResendEmail}
         onSignIn={handleSignIn}
         onSignOut={handleSignOut}
+        onDeleteAccount={handleDeleteAccount}
         onRetry={() => {
           setIsAccountSheetVisible(false);
           setAuthRetryCount((count) => count + 1);
         }}
+      />
+      <SocialDraftSheet
+        visible={socialDraftBook !== null}
+        book={socialDraftBook}
+        onClose={() => setSocialDraftBook(null)}
+        onGenerate={generateSocialDraft}
+      />
+      <TrendReplySheet
+        visible={isTrendReplyVisible}
+        books={readBooks}
+        onClose={() => setIsTrendReplyVisible(false)}
+        onGenerate={generateTrendReply}
       />
     </SafeAreaView>
   );
@@ -593,9 +923,11 @@ const styles = StyleSheet.create({
   brandName: { color: '#f6f7f3', fontSize: 20, fontWeight: '700', letterSpacing: 0 },
   sidebarEyebrow: { color: '#8a9991', fontSize: 10, fontWeight: '700', letterSpacing: 1.4, marginTop: 56, marginBottom: 15 },
   navItem: { height: 46, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, borderRadius: 6, marginBottom: 5 },
+  navItemCompact: { flex: 1, justifyContent: 'center', gap: 4, paddingHorizontal: 2, marginBottom: 0 },
   navItemActive: { backgroundColor: '#d8eee0' },
   navItemDisabled: { opacity: 0.5 },
   navLabel: { flex: 1, color: '#bdc8c0', fontSize: 13, fontWeight: '500' },
+  navLabelCompact: { flex: 0, fontSize: 9 },
   navLabelActive: { color: '#243b35', fontWeight: '700' },
   navCount: { color: '#9eaaa3', fontSize: 12, fontVariant: ['tabular-nums'] },
   sidebarFooter: { marginTop: 'auto', borderTopWidth: 1, borderTopColor: '#3a4b46', paddingTop: 17 },
@@ -622,6 +954,22 @@ const styles = StyleSheet.create({
   pillarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
   sectionLabel: { color: '#68786e', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
   stackCount: { color: '#929d95', fontSize: 9, fontWeight: '700', letterSpacing: 0.8 },
+  searchSection: { maxWidth: 860, width: '100%', alignSelf: 'center', marginBottom: 22, zIndex: 2 },
+  searchInputWrap: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 5, backgroundColor: '#fffefa', paddingHorizontal: 13 },
+  searchInput: { flex: 1, minWidth: 0, height: 44, color: '#29382f', fontSize: 13 },
+  searchClear: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
+  searchResults: { borderWidth: 1, borderColor: '#d8e0d7', borderTopWidth: 0, borderBottomLeftRadius: 5, borderBottomRightRadius: 5, backgroundColor: '#fffefa', overflow: 'hidden' },
+  searchResult: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 13, borderTopWidth: 1, borderTopColor: '#e8ece6' },
+  searchResultPressed: { backgroundColor: '#f0f4ef' },
+  searchSwatch: { width: 4, height: 34, borderRadius: 2 },
+  searchResultText: { flex: 1, minWidth: 0 },
+  searchResultTitle: { color: '#29382f', fontSize: 12, fontWeight: '600' },
+  searchResultAuthor: { color: '#78857d', fontSize: 10, marginTop: 3 },
+  searchResultShelf: { color: '#819087', fontSize: 8, fontWeight: '700', letterSpacing: 0.5 },
+  searchEmpty: { color: '#718077', fontSize: 12, paddingHorizontal: 14, paddingVertical: 16 },
+  trendEntryButton: { minHeight: 38, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7, marginBottom: 15, paddingHorizontal: 11, borderRadius: 4, backgroundColor: '#e7eef0' },
+  trendEntryLabel: { color: '#3e6e60', fontSize: 8, fontWeight: '800', letterSpacing: 0.6 },
+  surpriseButtonPressed: { backgroundColor: '#285e4c' },
   pillarRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 27 },
   pillarButton: { minHeight: 39, paddingHorizontal: 16, borderRadius: 5, borderWidth: 1, borderColor: '#d2dad2', justifyContent: 'center', backgroundColor: '#f8f9f6' },
   pillarButtonDisabled: { opacity: 0.62 },
@@ -650,16 +998,30 @@ const styles = StyleSheet.create({
   infoRule: { height: 1, backgroundColor: '#e8e9e3', marginVertical: 22 },
   noteLabel: { color: '#78887d', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
   bookNote: { color: '#39473f', fontSize: 15, lineHeight: 23, marginTop: 9, maxWidth: 420 },
+  adaptationSection: { marginTop: 17, paddingTop: 11, borderTopWidth: 1, borderTopColor: '#e8e9e3' },
+  adaptationHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  adaptationRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 4 },
+  adaptationCopy: { flex: 1, minWidth: 0 },
+  adaptationTitle: { color: '#35433b', fontSize: 12, lineHeight: 17, fontWeight: '600' },
+  adaptationMeta: { color: '#78857d', fontSize: 9, lineHeight: 14, marginTop: 2 },
+  adaptationEmpty: { color: '#879188', fontSize: 10, lineHeight: 15 },
+  onRampSection: { marginTop: 20, paddingTop: 13, borderTopWidth: 1, borderTopColor: '#e8e9e3' },
+  onRampHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' },
+  onRampButton: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 9, borderRadius: 4, backgroundColor: '#e7f0e9' },
+  onRampButtonText: { color: '#2f725b', fontSize: 8, fontWeight: '800', letterSpacing: 0.45 },
+  onRampText: { color: '#39473f', fontSize: 13, lineHeight: 20, marginTop: 10 },
+  onRampError: { color: '#a9443d', fontSize: 11, lineHeight: 16, marginTop: 8 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: 17 },
   catalogId: { color: '#a0a9a2', fontSize: 9, fontWeight: '700', letterSpacing: 0.7 },
   actionRow: { maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 15, gap: 7 },
   actionRowMobile: { flexWrap: 'wrap' },
   actionButton: { flex: 1, minWidth: 0, minHeight: 65, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 10, borderRadius: 5, borderWidth: 1, borderColor: '#e1e4dd', backgroundColor: '#f8f9f6' },
-  actionButtonMobile: { flexBasis: '47%' },
+  actionButtonMobile: { flexBasis: '31%', minHeight: 75, flexDirection: 'column', justifyContent: 'center', gap: 5, paddingHorizontal: 4 },
   actionDisabled: { opacity: 0.55 },
   actionPressed: { backgroundColor: '#e8eee8', transform: [{ scale: 0.98 }] },
   actionIcon: { width: 34, height: 34, borderRadius: 5, alignItems: 'center', justifyContent: 'center' },
   actionLabel: { color: '#34433b', fontSize: 11, fontWeight: '600', flexShrink: 1 },
+  actionLabelMobile: { fontSize: 10, textAlign: 'center' },
   actionHint: { color: '#89958c', fontSize: 7, fontWeight: '700', letterSpacing: 0.4 },
   emptyState: { maxWidth: 860, width: '100%', minHeight: 300, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', padding: 30, borderWidth: 1, borderColor: '#dfe4dc', borderStyle: 'dashed', borderRadius: 6, backgroundColor: '#f8f9f6' },
   emptyIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#e3efe6', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
@@ -670,12 +1032,21 @@ const styles = StyleSheet.create({
   shelfView: { minHeight: 350 },
   shelfList: { borderTopWidth: 1, borderTopColor: '#dfe4dc' },
   shelfRow: { minHeight: 78, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#dfe4dc', gap: 14 },
+  snoozedShelfRow: { gap: 8 },
+  returnShelfRow: { gap: 8 },
   shelfIndex: { color: '#9ca69e', fontSize: 10, fontWeight: '700', width: 22 },
   shelfSwatch: { width: 4, height: 42, borderRadius: 2 },
   shelfText: { flex: 1 },
   shelfTitle: { color: '#29382f', fontSize: 15, fontWeight: '600' },
   shelfAuthor: { color: '#78857d', fontSize: 11, marginTop: 4 },
   shelfPillar: { color: '#819087', fontSize: 8, fontWeight: '700', letterSpacing: 0.8 },
+  shelfReturn: { color: '#8a6e46', fontSize: 7 },
+  wakeButton: { minWidth: 54, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6, borderRadius: 4, backgroundColor: '#f0ebe1' },
+  wakeButtonText: { color: '#765d3b', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
+  returnBookButton: { minWidth: 58, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6, borderRadius: 4, backgroundColor: '#e5f1e8' },
+  returnBookButtonText: { color: '#2f725b', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
+  draftPostButton: { minWidth: 58, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6, borderRadius: 4, backgroundColor: '#e7eef0' },
+  draftPostButtonText: { color: '#3e6e60', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
   pageFooter: { borderTopWidth: 1, borderTopColor: '#dfe4dc', paddingTop: 14, marginTop: 28, flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   footerCopy: { color: '#9aa49c', fontSize: 8, fontWeight: '700', letterSpacing: 0.8 },
 });
