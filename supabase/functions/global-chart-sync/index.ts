@@ -166,7 +166,7 @@ edgeRuntime.serve(async (request: Request) => {
     const report = {
       nyt: { configured: Boolean(edgeRuntime.env.get('NYT_API_KEY')), sources: 0, entries: 0, errors: 0 },
       openLibrary: { configured: Boolean(edgeRuntime.env.get('OPENLIBRARY_USER_AGENT')), trendSources: 0, trendEntries: 0, links: 0, snapshots: 0, errors: 0 },
-      googleTrends: { feeds: 0, topics: 0, errors: 0 },
+      googleTrends: { feeds: 0, topics: 0, newsItems: 0, errors: 0 },
     };
 
     const trendParser = new XMLParser({ ignoreAttributes: true, removeNSPrefix: true });
@@ -196,13 +196,49 @@ edgeRuntime.serve(async (request: Request) => {
           const topic = typeof item.title === 'string' ? item.title.trim().slice(0, 200) : '';
           const publishedAt = typeof item.pubDate === 'string' ? new Date(item.pubDate) : null;
           if (!topic || !publishedAt || !Number.isFinite(publishedAt.getTime())) return [];
+          const rawNewsItems = Array.isArray(item.news_item)
+            ? item.news_item as Array<Record<string, unknown>>
+            : item.news_item && typeof item.news_item === 'object'
+              ? [item.news_item as Record<string, unknown>]
+              : [];
+          const newsItems: Array<{ position: number; headline: string; snippet: string | null; source_name: string; article_url: string }> = [];
+          const articleUrls = new Set<string>();
+          for (const newsItem of rawNewsItems) {
+            const headline = typeof newsItem.news_item_title === 'string' ? newsItem.news_item_title.trim().slice(0, 300) : '';
+            const articleUrl = typeof newsItem.news_item_url === 'string' ? newsItem.news_item_url.trim() : '';
+            if (!headline || !articleUrl || articleUrls.has(articleUrl)) continue;
+            try {
+              if (new URL(articleUrl).protocol !== 'https:') continue;
+            } catch {
+              continue;
+            }
+            articleUrls.add(articleUrl);
+            const snippet = typeof newsItem.news_item_snippet === 'string'
+              ? newsItem.news_item_snippet.trim().slice(0, 500) || null
+              : null;
+            const sourceName = typeof newsItem.news_item_source === 'string'
+              ? newsItem.news_item_source.trim().slice(0, 100)
+              : '';
+            newsItems.push({
+              position: newsItems.length + 1,
+              headline,
+              snippet,
+              source_name: sourceName,
+              article_url: articleUrl,
+            });
+            if (newsItems.length === 3) break;
+          }
           return [{
             country_code: countryCode,
             topic,
+            approx_traffic: typeof item.approx_traffic === 'string'
+              ? item.approx_traffic.trim().slice(0, 32) || null
+              : null,
             published_at: publishedAt.toISOString(),
             source_url: feedUrl,
             fetched_at: fetchedAt.toISOString(),
             expires_at: new Date(fetchedAt.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+            news_items: newsItems,
           }];
         }).slice(0, 25);
 
@@ -210,18 +246,55 @@ edgeRuntime.serve(async (request: Request) => {
           report.googleTrends.errors += 1;
           continue;
         }
+        const rowKey = (country: string, topic: string, publishedAt: string) =>
+          `${country}:${topic}:${Date.parse(publishedAt)}`;
+        const uniqueRows = [...new Map(rows.map((row) => [rowKey(row.country_code, row.topic, row.published_at), row])).values()];
+        const topicRows = uniqueRows.map(({ news_items: _newsItems, ...topic }) => topic);
         const topicsUrl = restUrl('quip_trend_topics');
         topicsUrl.searchParams.set('on_conflict', 'country_code,topic,published_at');
         const topicsResponse = await fetch(topicsUrl, {
           method: 'POST',
-          headers: { ...supabaseHeaders, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
-          body: JSON.stringify(rows),
+          headers: { ...supabaseHeaders, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=representation' },
+          body: JSON.stringify(topicRows),
         });
         if (!topicsResponse.ok) {
           report.googleTrends.errors += 1;
           continue;
         }
-        report.googleTrends.topics += rows.length;
+        const savedTopics = await topicsResponse.json() as Array<{ id: string; country_code: string; topic: string; published_at: string }>;
+        const rowByKey = new Map(uniqueRows.map((row) => [rowKey(row.country_code, row.topic, row.published_at), row]));
+        const newsRows = savedTopics.flatMap((savedTopic) => {
+          const key = rowKey(savedTopic.country_code, savedTopic.topic, savedTopic.published_at);
+          const sourceRow = rowByKey.get(key);
+          return (sourceRow?.news_items ?? []).map((newsItem) => ({
+            trend_topic_id: savedTopic.id,
+            ...newsItem,
+          }));
+        });
+        const topicIds = savedTopics.map((topic) => topic.id);
+        if (topicIds.length > 0) {
+          const oldNewsUrl = restUrl('quip_trend_news_items');
+          oldNewsUrl.searchParams.set('trend_topic_id', `in.(${topicIds.join(',')})`);
+          const oldNewsResponse = await fetch(oldNewsUrl, { method: 'DELETE', headers: { ...supabaseHeaders, Prefer: 'return=minimal' } });
+          if (!oldNewsResponse.ok) {
+            report.googleTrends.errors += 1;
+            continue;
+          }
+        }
+        if (newsRows.length > 0) {
+          const newsUrl = restUrl('quip_trend_news_items');
+          const newsResponse = await fetch(newsUrl, {
+            method: 'POST',
+            headers: { ...supabaseHeaders, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+            body: JSON.stringify(newsRows),
+          });
+          if (!newsResponse.ok) {
+            report.googleTrends.errors += 1;
+            continue;
+          }
+        }
+        report.googleTrends.topics += topicRows.length;
+        report.googleTrends.newsItems += newsRows.length;
       } catch {
         report.googleTrends.errors += 1;
       }

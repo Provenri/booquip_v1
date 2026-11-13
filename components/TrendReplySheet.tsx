@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { Check, Copy, MessageCircle, X } from 'lucide-react-native';
+import { Check, Copy, ExternalLink, MessageCircle, X } from 'lucide-react-native';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as Linking from 'expo-linking';
 import type { Book } from '@/lib/books';
 import { loadQuipTrendTopics, type QuipTrendTopic } from '@/lib/quipTrends';
 
@@ -9,11 +10,12 @@ type TrendReplySheetProps = {
   visible: boolean;
   books: Book[];
   onClose: () => void;
-  onGenerate: (trendText: string) => Promise<string>;
+  onGenerate: (trendText: string, trendTopicId: string | null) => Promise<string>;
 };
 
 export default function TrendReplySheet({ visible, books, onClose, onGenerate }: TrendReplySheetProps) {
   const [trendText, setTrendText] = useState('');
+  const [selectedTrendTopicId, setSelectedTrendTopicId] = useState<string | null>(null);
   const [reply, setReply] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -23,13 +25,19 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
   const [topicsStatus, setTopicsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const replyLimit = 600;
   const visibleTopics = trendTopics
-    .filter((topic) => topicCountry === 'ALL' || topic.countryCode === topicCountry)
-    .slice(0, 8);
+    .filter((topic) => topicCountry === 'ALL' || topic.countryCode === topicCountry);
+  const displayedTopics = topicCountry === 'ALL'
+    ? (['US', 'UK'] as const)
+      .flatMap((country) => visibleTopics.filter((topic) => topic.countryCode === country).slice(0, 4))
+      .sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt))
+    : visibleTopics.slice(0, 8);
+  const selectedTopic = trendTopics.find((topic) => topic.id === selectedTrendTopicId) ?? null;
 
   useEffect(() => {
     if (!visible) return;
     let active = true;
     setTrendText('');
+    setSelectedTrendTopicId(null);
     setReply('');
     setErrorMessage('');
     setIsCopied(false);
@@ -49,13 +57,27 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
     return () => { active = false; };
   }, [visible]);
 
+  const updateTrendText = (text: string) => {
+    setTrendText(text);
+    if (selectedTopic && text !== selectedTopic.topic) setSelectedTrendTopicId(null);
+    setReply('');
+    setIsCopied(false);
+  };
+
+  const selectTrendTopic = (topic: QuipTrendTopic) => {
+    setTrendText(topic.topic);
+    setSelectedTrendTopicId(topic.id);
+    setReply('');
+    setIsCopied(false);
+  };
+
   const generate = async () => {
     if (books.length === 0 || !trendText.trim() || isGenerating) return;
     setIsGenerating(true);
     setErrorMessage('');
     setIsCopied(false);
     try {
-      setReply(await onGenerate(trendText.trim()));
+      setReply(await onGenerate(trendText.trim(), selectedTrendTopicId));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Could not draft a trend reply.');
     } finally {
@@ -93,6 +115,7 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
             </Text>
 
             <Text style={styles.fieldLabel}>TRENDING TOPICS</Text>
+            <Text style={styles.fieldHint}>Choose a topic to see related headlines and add context to your reply.</Text>
             <View accessibilityRole="tablist" style={styles.countryFilter}>
               {(['ALL', 'US', 'UK'] as const).map((country) => (
                 <Pressable
@@ -112,19 +135,40 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
               <Text style={styles.fieldHint}>Loading recent topics…</Text>
             ) : topicsStatus === 'error' ? (
               <Text style={styles.fieldHint}>Trend suggestions are unavailable. You can still enter a topic below.</Text>
-            ) : visibleTopics.length > 0 ? (
+            ) : displayedTopics.length > 0 ? (
               <View style={styles.topicList}>
-                {visibleTopics.map((topic) => (
-                  <Pressable
-                    key={topic.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Use ${topic.countryCode} trend: ${topic.topic}`}
-                    onPress={() => { setTrendText(topic.topic); setReply(''); setIsCopied(false); }}
-                    style={({ pressed }) => [styles.topicRow, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.topicText}>{topic.topic}</Text>
-                    <Text style={styles.topicCountry}>{topic.countryCode}</Text>
-                  </Pressable>
+                {displayedTopics.map((topic) => (
+                  <View key={topic.id} style={[styles.topicCard, selectedTrendTopicId === topic.id && styles.topicCardSelected]}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: selectedTrendTopicId === topic.id }}
+                      accessibilityLabel={`Use ${topic.countryCode} trend: ${topic.topic}`}
+                      onPress={() => selectTrendTopic(topic)}
+                      style={({ pressed }) => [styles.topicRow, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.topicText}>{topic.topic}</Text>
+                      <View style={styles.topicBadges}>
+                        {topic.approxTraffic ? <Text style={styles.topicTraffic}>≈ {topic.approxTraffic}</Text> : null}
+                        <Text style={styles.topicCountry}>{topic.countryCode}</Text>
+                      </View>
+                    </Pressable>
+                    {topic.newsItems.map((item) => (
+                      <Pressable
+                        key={item.id}
+                        accessibilityRole="link"
+                        accessibilityLabel={`Open ${item.sourceName || 'news source'}: ${item.headline}`}
+                        onPress={() => void Linking.openURL(item.articleUrl)}
+                        style={({ pressed }) => [styles.newsItem, pressed && styles.pressed]}
+                      >
+                        <View style={styles.newsItemCopy}>
+                          <Text style={styles.newsHeadline}>{item.headline}</Text>
+                          {item.snippet ? <Text style={styles.newsSnippet}>{item.snippet}</Text> : null}
+                          {item.sourceName ? <Text style={styles.newsSource}>{item.sourceName}</Text> : null}
+                        </View>
+                        <ExternalLink color="#718077" size={13} />
+                      </Pressable>
+                    ))}
+                  </View>
                 ))}
                 <Text style={styles.topicAttribution}>Google Trends · recent searches</Text>
               </View>
@@ -138,7 +182,7 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
               autoCorrect
               maxLength={2000}
               multiline
-              onChangeText={(text) => { setTrendText(text); setReply(''); setIsCopied(false); }}
+              onChangeText={updateTrendText}
               placeholder="Paste the post or describe the topic…"
               style={styles.trendInput}
               textAlignVertical="top"
@@ -205,9 +249,18 @@ const styles = StyleSheet.create({
   countryTabLabel: { color: '#526259', fontSize: 9, fontWeight: '700' },
   countryTabLabelSelected: { color: '#fffaf6' },
   topicList: { marginTop: 8, borderTopWidth: 1, borderTopColor: '#e5e9e3' },
+  topicCard: { borderBottomWidth: 1, borderBottomColor: '#e5e9e3', paddingBottom: 5 },
+  topicCardSelected: { backgroundColor: '#f4f7f2' },
   topicRow: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#e8ece6' },
   topicText: { flex: 1, color: '#35433b', fontSize: 11, lineHeight: 16 },
+  topicBadges: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  topicTraffic: { color: '#89958c', fontSize: 8, lineHeight: 12 },
   topicCountry: { minWidth: 27, color: '#78887d', fontSize: 8, fontWeight: '800', textAlign: 'center' },
+  newsItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 5, paddingLeft: 8 },
+  newsItemCopy: { flex: 1, minWidth: 0 },
+  newsHeadline: { color: '#50635a', fontSize: 9, lineHeight: 13, fontWeight: '600' },
+  newsSnippet: { color: '#7c8981', fontSize: 8, lineHeight: 12, marginTop: 2 },
+  newsSource: { color: '#929c95', fontSize: 7, lineHeight: 10, fontWeight: '700', marginTop: 2 },
   topicAttribution: { color: '#879188', fontSize: 8, marginTop: 5 },
   bookSearch: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, paddingHorizontal: 11, marginTop: 17, backgroundColor: '#fff' },
   bookSearchInput: { flex: 1, minWidth: 0, height: 40, color: '#29382f', fontSize: 12 },
