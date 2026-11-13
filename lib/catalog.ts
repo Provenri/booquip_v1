@@ -18,22 +18,9 @@ export type ChartListing = {
   termsUrl: string;
 };
 
-export type OpenLibraryActivity = {
-  snapshotDate: string;
-  ratingsCount: number;
-  ratingsAverage: number | null;
-  ratingsCountChange: number | null;
-  previousSnapshotDate: string | null;
-  workUrl: string;
-  editionUrl: string | null;
-};
+export type ChartData = { listings: ChartListing[] };
 
-export type ChartData = {
-  listings: ChartListing[];
-  activityByBookId: Record<string, OpenLibraryActivity>;
-};
-
-export const EMPTY_CHART_DATA: ChartData = { listings: [], activityByBookId: {} };
+export const EMPTY_CHART_DATA: ChartData = { listings: [] };
 
 export async function loadCatalog(): Promise<Book[]> {
   if (!supabase) return [];
@@ -41,7 +28,7 @@ export async function loadCatalog(): Promise<Book[]> {
   const [bookResult, adaptationResult] = await Promise.all([
     supabase
       .from('books')
-      .select('id, title, author, published_year, isbn, pillar, note, cover_color, is_active')
+      .select('id, title, author, published_year, isbn, pillar, note, cover_color, cover_url, is_active')
       .order('title', { ascending: true }),
     supabase
       .from('book_adaptations')
@@ -76,6 +63,7 @@ export async function loadCatalog(): Promise<Book[]> {
     pillar: row.pillar as Pillar,
     note: row.note,
     color: row.cover_color,
+    coverUrl: row.cover_url,
     adaptations: adaptationsByBook.get(row.id) ?? [],
     isActive: row.is_active,
   }));
@@ -144,50 +132,5 @@ export async function loadChartData(): Promise<ChartData> {
     }];
   });
 
-  const bookIds = [...new Set(listings.flatMap((listing) => listing.bookId ? [listing.bookId] : []))];
-  if (bookIds.length === 0) return { listings, activityByBookId: {} };
-
-  const [snapshotResult, linkResult] = await Promise.all([
-    supabase
-      .from('openlibrary_activity_snapshots')
-      .select('book_id, snapshot_date, ratings_count, ratings_average')
-      .in('book_id', bookIds)
-      .order('snapshot_date', { ascending: false }),
-    supabase
-      .from('openlibrary_book_links')
-      .select('book_id, work_key, edition_key')
-      .in('book_id', bookIds),
-  ]);
-  if (snapshotResult.error) throw snapshotResult.error;
-  if (linkResult.error) throw linkResult.error;
-
-  const snapshotsByBook = new Map<string, Array<{ date: string; count: number; average: number | null }>>();
-  for (const snapshot of snapshotResult.data ?? []) {
-    const records = snapshotsByBook.get(snapshot.book_id) ?? [];
-    records.push({
-      date: snapshot.snapshot_date,
-      count: snapshot.ratings_count,
-      average: snapshot.ratings_average === null ? null : Number(snapshot.ratings_average),
-    });
-    snapshotsByBook.set(snapshot.book_id, records);
-  }
-  const linksByBook = new Map((linkResult.data ?? []).map((link) => [link.book_id, link]));
-  const activityByBookId: Record<string, OpenLibraryActivity> = {};
-  for (const [bookId, snapshots] of snapshotsByBook) {
-    const link = linksByBook.get(bookId);
-    const latest = snapshots[0];
-    if (!link || !latest) continue;
-    const previous = snapshots[1];
-    activityByBookId[bookId] = {
-      snapshotDate: latest.date,
-      ratingsCount: latest.count,
-      ratingsAverage: latest.average,
-      ratingsCountChange: previous ? latest.count - previous.count : null,
-      previousSnapshotDate: previous?.date ?? null,
-      workUrl: `https://openlibrary.org${link.work_key}`,
-      editionUrl: link.edition_key ? `https://openlibrary.org${link.edition_key}` : null,
-    };
-  }
-
-  return { listings, activityByBookId };
+  return { listings };
 }

@@ -4,11 +4,12 @@ export type Book = {
   id: string;
   title: string;
   author: string;
-  year: number;
-  isbn: string;
+  year: number | null;
+  isbn: string | null;
   pillar: Pillar;
   note: string;
   color: string;
+  coverUrl?: string | null;
   adaptations?: BookAdaptation[];
   isActive?: boolean;
 };

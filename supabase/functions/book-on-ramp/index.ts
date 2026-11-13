@@ -37,7 +37,7 @@ edgeRuntime.serve(async (request: Request) => {
     !book ||
     typeof book.title !== 'string' || book.title.length < 1 || book.title.length > 160 ||
     typeof book.author !== 'string' || book.author.length < 1 || book.author.length > 160 ||
-    typeof book.year !== 'number' || !Number.isInteger(book.year) ||
+    (book.year !== null && book.year !== undefined && (typeof book.year !== 'number' || !Number.isInteger(book.year))) ||
     typeof book.note !== 'string' || book.note.length < 1 || book.note.length > 500
   ) {
     return jsonResponse(400, { error: 'Book details are missing or invalid.' });
@@ -57,7 +57,7 @@ edgeRuntime.serve(async (request: Request) => {
         messages: [
           {
             role: 'system',
-            content: 'You are BooQuip’s book guide. In 2 or 3 short sentences and no more than 70 words, give a modern reader a 30-second on-ramp to the book. Connect its central idea to one familiar contemporary analogy. Base book details only on the supplied short take; do not invent plot points or claims. Do not quote or imitate the book. Return plain text only.',
+            content: 'You are BooQuip’s book guide. In 2 or 3 short sentences and no more than 70 words, give a modern reader a 30-second on-ramp to the book. Base book details only on the supplied short take; do not invent plot points or claims. If the short take says no synopsis is available, do not infer plot, genre, or subject; offer a general question to guide a first reading instead. Mention the publication year only when one is supplied. Do not quote or imitate the book. Return plain text only.',
           },
           {
             role: 'user',
