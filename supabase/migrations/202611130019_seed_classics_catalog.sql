@@ -1,0 +1,38 @@
+insert into public.books (
+  id,
+  title,
+  author,
+  published_year,
+  isbn,
+  pillar,
+  note,
+  cover_color,
+  cover_url,
+  is_active
+)
+values
+  ('classic-things-fall-apart', 'Things Fall Apart', 'Chinua Achebe', 1958, null, 'classics', 'A village and family face the pressures of colonial rule and rapid change.', '#8a634a', 'https://covers.openlibrary.org/b/id/12816943-L.jpg', true),
+  ('classic-beloved', 'Beloved', 'Toni Morrison', 1987, null, 'classics', 'A community''s past returns to the present, asking what love can withstand.', '#795e77', 'https://covers.openlibrary.org/b/id/8261367-L.jpg', true),
+  ('classic-the-odyssey', 'The Odyssey', 'Homer', null, null, 'classics', 'An ancient homecoming tests identity, loyalty, and the cost of war.', '#c69a62', 'https://covers.openlibrary.org/b/id/12474938-L.jpg', true),
+  ('classic-wide-sargasso-sea', 'Wide Sargasso Sea', 'Jean Rhys', 1966, null, 'classics', 'A reimagining of Jane Eyre''s margins gives voice to a woman caught between cultures.', '#64858b', 'https://covers.openlibrary.org/b/id/9269373-L.jpg', true),
+  ('classic-one-hundred-years-solitude', 'One Hundred Years of Solitude', 'Gabriel Garcia Marquez', 1967, null, 'classics', 'A family story turns memory, power, and solitude into a multigenerational landscape.', '#a86d72', 'https://covers.openlibrary.org/b/id/15185412-L.jpg', true),
+  ('classic-house-on-mango-street', 'The House on Mango Street', 'Sandra Cisneros', 1983, null, 'classics', 'A young narrator builds a sense of home and possibility on her own terms.', '#b47c66', 'https://covers.openlibrary.org/b/id/8804569-L.jpg', true),
+  ('classic-fire-next-time', 'The Fire Next Time', 'James Baldwin', 1962, null, 'classics', 'A sharp personal essay on race, religion, and the American promise.', '#ad5b4e', 'https://covers.openlibrary.org/b/id/2980395-L.jpg', true),
+  ('classic-orientalism', 'Orientalism', 'Edward Said', 1978, null, 'classics', 'A study of how knowledge and power shape the West''s stories about the East.', '#6177a2', 'https://covers.openlibrary.org/b/id/254331-L.jpg', true),
+  ('classic-wretched-of-earth', 'The Wretched of the Earth', 'Frantz Fanon', 1961, null, 'classics', 'An anticolonial critique of the violence and aftermath of imperial rule.', '#477d6c', null, true),
+  ('classic-warmth-of-other-suns', 'The Warmth of Other Suns', 'Isabel Wilkerson', 2010, null, 'classics', 'A history of the Great Migration told through the journeys of three Black Americans.', '#8a9b79', 'https://covers.openlibrary.org/b/id/10129368-L.jpg', true),
+  ('classic-souls-of-black-folk', 'The Souls of Black Folk', 'W. E. B. Du Bois', 1903, null, 'classics', 'Essays examining race, education, and democracy in the United States.', '#547c72', 'https://covers.openlibrary.org/b/id/6564090-L.jpg', true),
+  ('classic-great-transformation', 'The Great Transformation', 'Karl Polanyi', 1944, null, 'classics', 'An account of how economic systems reshape society and everyday life.', '#9a7957', 'https://covers.openlibrary.org/b/id/966056-L.jpg', true),
+  ('classic-origin-of-species', 'On the Origin of Species', 'Charles Darwin', 1859, null, 'classics', 'An argument that natural selection can explain the diversity of life.', '#65836a', 'https://covers.openlibrary.org/b/id/7153600-L.jpg', true),
+  ('classic-sixth-extinction', 'The Sixth Extinction', 'Elizabeth Kolbert', 2014, null, 'classics', 'An investigation into modern species loss and the human choices accelerating it.', '#6d8392', 'https://covers.openlibrary.org/b/id/7910870-L.jpg', true),
+  ('classic-emperor-of-all-maladies', 'The Emperor of All Maladies', 'Siddhartha Mukherjee', 2010, null, 'classics', 'A history of cancer research told through the science, people, and institutions behind it.', '#d0a45f', 'https://covers.openlibrary.org/b/id/11320203-L.jpg', true),
+  ('classic-man-who-mistook-wife-hat', 'The Man Who Mistook His Wife for a Hat', 'Oliver Sacks', 1980, null, 'classics', 'Clinical stories that reveal the richness and fragility of perception and identity.', '#718259', 'https://covers.openlibrary.org/b/id/6986188-L.jpg', true),
+  ('classic-immortal-life-henrietta-lacks', 'The Immortal Life of Henrietta Lacks', 'Rebecca Skloot', 2009, null, 'classics', 'A biography of Henrietta Lacks and the ethics surrounding the use of her cells.', '#717568', 'https://covers.openlibrary.org/b/id/8364866-L.jpg', true),
+  ('classic-cosmos', 'Cosmos', 'Carl Sagan', 1980, null, 'classics', 'A guided tour of the universe that connects astronomy, history, and human curiosity.', '#54788b', 'https://covers.openlibrary.org/b/id/8283901-L.jpg', true),
+  ('classic-meditations', 'Meditations', 'Marcus Aurelius', null, null, 'classics', 'Private reflections on impermanence, self-discipline, and how to meet difficulty.', '#8a7259', 'https://covers.openlibrary.org/b/id/211529-L.jpg', true),
+  ('classic-second-sex', 'The Second Sex', 'Simone de Beauvoir', 1949, null, 'classics', 'A landmark analysis of how gender roles shape women''s lives and social possibilities.', '#795e77', null, true),
+  ('classic-room-of-ones-own', 'A Room of One''s Own', 'Virginia Woolf', 1929, null, 'classics', 'An argument about the material freedom women need to write and create.', '#967da0', 'https://covers.openlibrary.org/b/id/6559057-L.jpg', true),
+  ('classic-myth-of-sisyphus', 'The Myth of Sisyphus', 'Albert Camus', 1955, null, 'classics', 'An essay about confronting life''s lack of simple answers and choosing how to live.', '#565a61', 'https://covers.openlibrary.org/b/id/12726570-L.jpg', true),
+  ('classic-pedagogy-of-oppressed', 'Pedagogy of the Oppressed', 'Paulo Freire', 1970, null, 'classics', 'A theory of education centered on dialogue, agency, and liberation.', '#477d6c', 'https://covers.openlibrary.org/b/id/99306-L.jpg', true),
+  ('classic-brief-history-time', 'A Brief History of Time', 'Stephen Hawking', 1988, null, 'classics', 'An inquiry into time, space, and the laws that shape the universe.', '#618f83', 'https://covers.openlibrary.org/b/id/10432365-L.jpg', true)
+on conflict (id) do nothing;
