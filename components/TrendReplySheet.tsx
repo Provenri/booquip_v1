@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { Check, Copy, ExternalLink, MessageCircle, X } from 'lucide-react-native';
+import { Check, Copy, MessageCircle, X } from 'lucide-react-native';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import * as Linking from 'expo-linking';
 import type { Book } from '@/lib/books';
 import { loadQuipTrendTopics, type QuipTrendTopic } from '@/lib/quipTrends';
 
@@ -115,7 +114,7 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
             </Text>
 
             <Text style={styles.fieldLabel}>TRENDING TOPICS</Text>
-            <Text style={styles.fieldHint}>Choose a topic to see related headlines and add context to your reply.</Text>
+            <Text style={styles.fieldHint}>Choose a topic to add trending context to your reply.</Text>
             <View accessibilityRole="tablist" style={styles.countryFilter}>
               {(['ALL', 'US', 'UK'] as const).map((country) => (
                 <Pressable
@@ -138,37 +137,23 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
             ) : displayedTopics.length > 0 ? (
               <View style={styles.topicList}>
                 {displayedTopics.map((topic) => (
-                  <View key={topic.id} style={[styles.topicCard, selectedTrendTopicId === topic.id && styles.topicCardSelected]}>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: selectedTrendTopicId === topic.id }}
-                      accessibilityLabel={`Use ${topic.countryCode} trend: ${topic.topic}`}
-                      onPress={() => selectTrendTopic(topic)}
-                      style={({ pressed }) => [styles.topicRow, pressed && styles.pressed]}
-                    >
+                  <Pressable
+                    key={topic.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: selectedTrendTopicId === topic.id }}
+                    accessibilityLabel={`Use ${topic.countryCode} trend: ${topic.topic}`}
+                    onPress={() => selectTrendTopic(topic)}
+                    style={({ pressed }) => [styles.topicCard, selectedTrendTopicId === topic.id && styles.topicCardSelected, pressed && styles.pressed]}
+                  >
+                    <View style={styles.topicRow}>
                       <Text style={styles.topicText}>{topic.topic}</Text>
                       <View style={styles.topicBadges}>
                         {topic.approxTraffic ? <Text style={styles.topicTraffic}>≈ {topic.approxTraffic}</Text> : null}
                         <Text style={styles.topicCountry}>{topic.countryCode}</Text>
                       </View>
-                    </Pressable>
-                    {topic.newsItems.map((item) => (
-                      <Pressable
-                        key={item.id}
-                        accessibilityRole="link"
-                        accessibilityLabel={`Open ${item.sourceName || 'news source'}: ${item.headline}`}
-                        onPress={() => void Linking.openURL(item.articleUrl)}
-                        style={({ pressed }) => [styles.newsItem, pressed && styles.pressed]}
-                      >
-                        <View style={styles.newsItemCopy}>
-                          <Text style={styles.newsHeadline}>{item.headline}</Text>
-                          {item.snippet ? <Text style={styles.newsSnippet}>{item.snippet}</Text> : null}
-                          {item.sourceName ? <Text style={styles.newsSource}>{item.sourceName}</Text> : null}
-                        </View>
-                        <ExternalLink color="#718077" size={13} />
-                      </Pressable>
-                    ))}
-                  </View>
+                    </View>
+                    {topic.summary ? <Text style={styles.topicSummary}>{topic.summary}</Text> : null}
+                  </Pressable>
                 ))}
                 <Text style={styles.topicAttribution}>Google Trends · recent searches</Text>
               </View>
@@ -249,18 +234,14 @@ const styles = StyleSheet.create({
   countryTabLabel: { color: '#526259', fontSize: 9, fontWeight: '700' },
   countryTabLabelSelected: { color: '#fffaf6' },
   topicList: { marginTop: 8, borderTopWidth: 1, borderTopColor: '#e5e9e3' },
-  topicCard: { borderBottomWidth: 1, borderBottomColor: '#e5e9e3', paddingBottom: 5 },
+  topicCard: { minHeight: 38, justifyContent: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#e5e9e3' },
   topicCardSelected: { backgroundColor: '#f4f7f2' },
-  topicRow: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#e8ece6' },
-  topicText: { flex: 1, color: '#35433b', fontSize: 11, lineHeight: 16 },
+  topicRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topicText: { flex: 1, color: '#35433b', fontSize: 11, lineHeight: 16, fontWeight: '600' },
   topicBadges: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   topicTraffic: { color: '#89958c', fontSize: 8, lineHeight: 12 },
   topicCountry: { minWidth: 27, color: '#78887d', fontSize: 8, fontWeight: '800', textAlign: 'center' },
-  newsItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 5, paddingLeft: 8 },
-  newsItemCopy: { flex: 1, minWidth: 0 },
-  newsHeadline: { color: '#50635a', fontSize: 9, lineHeight: 13, fontWeight: '600' },
-  newsSnippet: { color: '#7c8981', fontSize: 8, lineHeight: 12, marginTop: 2 },
-  newsSource: { color: '#929c95', fontSize: 7, lineHeight: 10, fontWeight: '700', marginTop: 2 },
+  topicSummary: { color: '#68766d', fontSize: 10, lineHeight: 14, marginTop: 3 },
   topicAttribution: { color: '#879188', fontSize: 8, marginTop: 5 },
   bookSearch: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, paddingHorizontal: 11, marginTop: 17, backgroundColor: '#fff' },
   bookSearchInput: { flex: 1, minWidth: 0, height: 40, color: '#29382f', fontSize: 12 },
