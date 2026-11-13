@@ -1,68 +1,39 @@
 import { useEffect, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { Check, Copy, MessageCircle, Search, X } from 'lucide-react-native';
+import { Check, Copy, MessageCircle, X } from 'lucide-react-native';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { Book } from '@/lib/books';
-import type { SocialPlatform } from '@/lib/socialGhostwriter';
-import type { TrendBookScope } from '@/lib/trendInterceptor';
 
 type TrendReplySheetProps = {
   visible: boolean;
   books: Book[];
-  initialBookId?: string | null;
   onClose: () => void;
-  onGenerate: (scope: TrendBookScope, bookId: string | null, platform: SocialPlatform, trendText: string) => Promise<string>;
+  onGenerate: (trendText: string) => Promise<string>;
 };
 
-export default function TrendReplySheet({ visible, books, initialBookId = null, onClose, onGenerate }: TrendReplySheetProps) {
-  const [bookQuery, setBookQuery] = useState('');
-  const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
-  const [bookScope, setBookScope] = useState<TrendBookScope>('single');
-  const [platform, setPlatform] = useState<SocialPlatform>('linkedin');
+export default function TrendReplySheet({ visible, books, onClose, onGenerate }: TrendReplySheetProps) {
   const [trendText, setTrendText] = useState('');
   const [reply, setReply] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
-  const characterLimit = platform === 'x' ? 280 : 3000;
-  const selectedBook = books.find((book) => book.id === selectedBookId) ?? null;
-  const bookResults = bookQuery.trim()
-    ? books.filter((book) => `${book.title} ${book.author}`.toLowerCase().includes(bookQuery.trim().toLowerCase())).slice(0, 5)
-    : [];
+  const replyLimit = 600;
 
   useEffect(() => {
     if (!visible) return;
-    setBookQuery('');
-    setSelectedBookId(initialBookId && books.some((book) => book.id === initialBookId) ? initialBookId : null);
-    setBookScope('single');
-    setPlatform('linkedin');
     setTrendText('');
     setReply('');
     setErrorMessage('');
     setIsCopied(false);
-  }, [visible, initialBookId]);
-
-  const changePlatform = (nextPlatform: SocialPlatform) => {
-    setPlatform(nextPlatform);
-    setReply('');
-    setErrorMessage('');
-    setIsCopied(false);
-  };
-
-  const changeBookScope = (nextScope: TrendBookScope) => {
-    setBookScope(nextScope);
-    setReply('');
-    setErrorMessage('');
-    setIsCopied(false);
-  };
+  }, [visible]);
 
   const generate = async () => {
-    if ((bookScope === 'single' && !selectedBook) || (bookScope === 'all' && books.length === 0) || !trendText.trim() || isGenerating) return;
+    if (books.length === 0 || !trendText.trim() || isGenerating) return;
     setIsGenerating(true);
     setErrorMessage('');
     setIsCopied(false);
     try {
-      setReply(await onGenerate(bookScope, bookScope === 'single' ? selectedBook?.id ?? null : null, platform, trendText.trim()));
+      setReply(await onGenerate(trendText.trim()));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Could not draft a trend reply.');
     } finally {
@@ -94,95 +65,10 @@ export default function TrendReplySheet({ visible, books, initialBookId = null, 
 
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
             <Text style={styles.eyebrow}>FROM YOUR READ SHELF</Text>
-            <Text style={styles.title}>Reply to a trend</Text>
-            <Text style={styles.description}>Paste a post or topic and draft a book-informed reply.</Text>
-
-            <Text style={styles.fieldLabel}>BOOK CONTEXT</Text>
-            <View accessibilityRole="tablist" style={styles.platformControl}>
-              {(['single', 'all'] as const).map((item) => (
-                <Pressable
-                  key={item}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: bookScope === item }}
-                  onPress={() => changeBookScope(item)}
-                  style={[styles.platformTab, bookScope === item && styles.platformTabSelected]}
-                >
-                  <Text style={[styles.platformLabel, bookScope === item && styles.platformLabelSelected]}>
-                    {item === 'single' ? 'One book' : 'All Read books'}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {bookScope === 'all' ? (
-              <Text style={styles.fieldHint}>
-                {books.length > 0 ? `Consider all ${books.length} books on your Read shelf.` : 'Mark a book as read to use this option.'}
-              </Text>
-            ) : selectedBook ? (
-              <View style={styles.selectedBookRow}>
-                <View style={[styles.bookSwatch, { backgroundColor: selectedBook.color }]} />
-                <View style={styles.selectedBookText}>
-                  <Text style={styles.selectedBookTitle}>{selectedBook.title}</Text>
-                  <Text style={styles.selectedBookAuthor}>{selectedBook.author}</Text>
-                </View>
-                <Pressable accessibilityRole="button" onPress={() => { setSelectedBookId(null); setReply(''); }} style={styles.changeBookButton}>
-                  <Text style={styles.changeBookLabel}>CHANGE</Text>
-                </Pressable>
-              </View>
-            ) : (
-              <>
-                <View style={styles.bookSearch}>
-                  <Search color="#718077" size={16} />
-                  <TextInput
-                    accessibilityLabel="Search books on your Read shelf"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    onChangeText={setBookQuery}
-                    placeholder="Search your Read shelf"
-                    placeholderTextColor="#8d9990"
-                    style={styles.bookSearchInput}
-                    value={bookQuery}
-                  />
-                </View>
-                {bookQuery.trim() ? (
-                  <View style={styles.bookResults}>
-                    {bookResults.length ? bookResults.map((book) => (
-                      <Pressable
-                        key={book.id}
-                        accessibilityRole="button"
-                        onPress={() => { setSelectedBookId(book.id); setBookQuery(''); setReply(''); }}
-                        style={({ pressed }) => [styles.bookResult, pressed && styles.pressed]}
-                      >
-                        <View style={[styles.bookSwatch, { backgroundColor: book.color }]} />
-                        <View style={styles.bookResultText}>
-                          <Text style={styles.selectedBookTitle}>{book.title}</Text>
-                          <Text style={styles.selectedBookAuthor}>{book.author}</Text>
-                        </View>
-                      </Pressable>
-                    )) : <Text style={styles.noBooks}>No Read-shelf titles match.</Text>}
-                  </View>
-                ) : books.length === 0 ? (
-                  <Text style={styles.noBooks}>Mark a book as read before drafting a trend reply.</Text>
-                ) : (
-                  <Text style={styles.fieldHint}>Search by title or author.</Text>
-                )}
-              </>
-            )}
-
-            <Text style={styles.fieldLabel}>PLATFORM</Text>
-            <View accessibilityRole="tablist" style={styles.platformControl}>
-              {(['linkedin', 'x'] as const).map((item) => (
-                <Pressable
-                  key={item}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: platform === item }}
-                  onPress={() => changePlatform(item)}
-                  style={[styles.platformTab, platform === item && styles.platformTabSelected]}
-                >
-                  <Text style={[styles.platformLabel, platform === item && styles.platformLabelSelected]}>{item === 'linkedin' ? 'LinkedIn' : 'X'}</Text>
-                </Pressable>
-              ))}
-            </View>
+            <Text style={styles.title}>Reply</Text>
+            <Text style={styles.description}>
+              Your reply will draw on all {books.length} Quip-enabled Read {books.length === 1 ? 'book' : 'books'}.
+            </Text>
 
             <Text style={styles.fieldLabel}>POST OR TOPIC</Text>
             <TextInput
@@ -202,16 +88,16 @@ export default function TrendReplySheet({ visible, books, initialBookId = null, 
               <>
                 <Text style={styles.fieldLabel}>EDIT YOUR REPLY</Text>
                 <TextInput
-                  accessibilityLabel={`Editable ${platform === 'x' ? 'X' : 'LinkedIn'} reply draft`}
+                  accessibilityLabel="Editable reply draft"
                   autoCorrect
-                  maxLength={characterLimit}
+                  maxLength={replyLimit}
                   multiline
                   onChangeText={(text) => { setReply(text); setIsCopied(false); }}
                   style={styles.replyInput}
                   textAlignVertical="top"
                   value={reply}
                 />
-                <Text style={styles.characterCount}>{reply.length} / {characterLimit}</Text>
+                <Text style={styles.characterCount}>{reply.length} / {replyLimit}</Text>
               </>
             ) : null}
 
@@ -220,11 +106,11 @@ export default function TrendReplySheet({ visible, books, initialBookId = null, 
             <View style={styles.actions}>
               <Pressable
                 accessibilityRole="button"
-                disabled={(bookScope === 'single' && !selectedBook) || (bookScope === 'all' && books.length === 0) || !trendText.trim() || isGenerating}
+                disabled={books.length === 0 || !trendText.trim() || isGenerating}
                 onPress={() => void generate()}
-                style={({ pressed }) => [styles.generateButton, ((bookScope === 'single' && !selectedBook) || (bookScope === 'all' && books.length === 0) || !trendText.trim() || isGenerating) && styles.disabled, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.generateButton, (books.length === 0 || !trendText.trim() || isGenerating) && styles.disabled, pressed && styles.pressed]}
               >
-                <Text style={styles.generateLabel}>{isGenerating ? 'DRAFTING…' : reply ? 'REGENERATE' : 'GENERATE REPLY'}</Text>
+                <Text style={styles.generateLabel}>{isGenerating ? 'DRAFTING…' : 'REPLY'}</Text>
               </Pressable>
               {reply ? (
                 <Pressable accessibilityRole="button" onPress={() => void copyReply()} style={styles.copyButton}>
