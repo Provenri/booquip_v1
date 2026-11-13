@@ -125,15 +125,51 @@ Connect your GitHub repository to [Vercel](https://vercel.com) using the followi
 * **Output Directory:** `dist`
 
 ### 2. Build Mobile Binaries via Expo EAS (No Mac Required)
+
+Android and iOS use the application identifier `app.booquip.mobile` and the
+`booquip` URL scheme. Preview builds use default Expo/OS branding for now;
+final icons, splash assets, store screenshots, and privacy/support URLs are
+still required before a public release.
+
 ```bash
-# Install EAS CLI globally
-npm install -g eas-cli
+# Sign in and create/link this repository's Expo project (once)
+npx eas-cli login
+npx eas-cli init
 
-# Log in to your Expo account
-eas login
+# Installable Android APK: runs standalone without a development server
+npx eas-cli build --platform android --profile preview
 
-# Trigger cloud builds for both iOS (TestFlight) and Android (Play Console)
-eas build --platform all
+# Development clients: connect to Metro with npm run dev
+npx eas-cli build --platform android --profile development
+
+# Store builds: Android AAB and iOS TestFlight/App Store binary
+npx eas-cli build --platform all --profile production
+```
+
+Before building, configure `EXPO_PUBLIC_SUPABASE_URL` and
+`EXPO_PUBLIC_SUPABASE_ANON_KEY` in the EAS environment used by the profile
+(`development`, `preview`, or `production`). These are public client values;
+never supply service-role keys, OpenAI keys, or `CHART_SYNC_SECRET` to the app.
+Local `.env` files are git-ignored and excluded from the default EAS upload.
+
+The `preview` profile produces an Android APK for direct installation.
+An iOS internal preview requires an Apple Developer membership and registered
+devices (register with `npx eas-cli device:create` before building).
+The `production` profile increments build versions remotely. TestFlight requires
+an Apple Developer membership, signing credentials, and an App Store Connect app;
+Google Play distribution requires a Play Console account.
+After creating the store records, submit with
+`npx eas-cli submit --platform ios --profile production` or the Android equivalent.
+The first Google Play upload may need to be done manually in Play Console.
+
+For native email sign-in, allow `booquip://` and `booquip:///` in Supabase Auth's
+redirect URL settings. Verify magic links on a real installed build, along with
+screenshot uploads, trend-picker navigation, keyboard layout, shelf sync,
+and account deletion. A successful cloud build alone does not verify these flows.
+
+Camera and microphone permissions are disabled; screenshot input uses only the
+photo library. Android and iOS builds can be compiled with EAS from Linux;
+no local Mac is needed for cloud builds.
 
 ---
 - [ ] **Phase 3: Core Discovery Loop** — Use the Book/Quip library hub, Screen/Charts/Classics categories, Search and Surprise Me, and the three TBR/Read/Snooze actions.

@@ -6,12 +6,27 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "backgroundColor": "#F6F8F8",
+    "ios": {
+      "bundleIdentifier": "app.booquip.mobile",
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "app.booquip.mobile",
+      "versionCode": 1
+    },
     "plugins": [
       "expo-router",
       [
         "expo-image-picker",
         {
-          "photosPermission": "BooQuip uses your photo library so you can upload a screenshot of a post to reply to."
+          "photosPermission": "BooQuip uses your photo library so you can upload a screenshot of a post to reply to.",
+          "cameraPermission": false,
+          "microphonePermission": false
         }
       ]
     ],
@@ -20,6 +35,13 @@
     },
     "web": {
       "bundler": "metro"
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "66f9479e-4e68-44b2-a6a9-ec435f7fbf99"
+      }
+    },
+    "owner": "provenri"
   }
 }
