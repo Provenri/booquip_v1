@@ -22,6 +22,7 @@ import {
   BookOpen,
   Check,
   Clock3,
+  ExternalLink,
   Tv,
   MessageCircle,
   Share2,
@@ -41,7 +42,7 @@ import { generateSocialDraft } from '@/lib/socialGhostwriter';
 import SocialDraftSheet from '@/components/SocialDraftSheet';
 import TrendReplySheet from '@/components/TrendReplySheet';
 import { generateTrendReply } from '@/lib/trendInterceptor';
-import { loadCatalog, loadPillars } from '@/lib/catalog';
+import { EMPTY_CHART_DATA, loadCatalog, loadChartData, loadPillars, type ChartData } from '@/lib/catalog';
 
 type Screen = 'discover' | 'tbr' | 'read' | 'snoozed';
 type Section = 'home' | 'book' | 'quip';
@@ -86,6 +87,14 @@ function NavItem({
   );
 }
 
+function formatSignalDate(date: string) {
+  return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
 export default function DiscoverScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 820;
@@ -95,6 +104,8 @@ export default function DiscoverScreen() {
   const [readIds, setReadIds] = useState<string[]>([]);
   const [books, setBooks] = useState<Book[]>(BOOKS);
   const [pillars, setPillars] = useState(PILLARS);
+  const [chartData, setChartData] = useState<ChartData>(EMPTY_CHART_DATA);
+  const [chartLoadError, setChartLoadError] = useState(false);
   const [frozenUntil, setFrozenUntil] = useState<Record<string, number>>({});
   const [selectedPillar, setSelectedPillar] = useState<Pillar | null>(null);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
@@ -140,6 +151,10 @@ export default function DiscoverScreen() {
         `${availableBook.title} ${availableBook.author}`.toLowerCase().includes(searchQuery.trim().toLowerCase()),
       ).slice(0, 5)
     : [];
+  const chartGroups = chartData.listings.reduce<Record<string, typeof chartData.listings>>((groups, listing) => {
+    groups[listing.sourceId] = [...(groups[listing.sourceId] ?? []), listing];
+    return groups;
+  }, {});
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -151,13 +166,18 @@ export default function DiscoverScreen() {
       try {
         const activeUser = await getOrCreateAnonymousUser();
         if (!activeUser) throw new Error('Supabase is not configured.');
-        const [swipes, catalog, remotePillars] = await Promise.all([
+        const [swipes, catalog, remotePillars, remoteChartData] = await Promise.all([
           loadUserSwipes(activeUser.id),
           loadCatalog().catch(() => [] as Book[]),
           loadPillars().catch(() => []),
+          loadChartData()
+            .then((data) => ({ data, failed: false }))
+            .catch(() => ({ data: EMPTY_CHART_DATA, failed: true })),
         ]);
         if (!active) return;
         if (catalog.length > 0) setBooks(catalog);
+        setChartData(remoteChartData.data);
+        setChartLoadError(remoteChartData.failed);
         const hasCurrentPillars = remotePillars.length === PILLARS.length && PILLARS.every((pillar) => remotePillars.some((remotePillar) => remotePillar.id === pillar.id));
         if (hasCurrentPillars) setPillars(remotePillars);
 
@@ -647,7 +667,7 @@ export default function DiscoverScreen() {
               </View>
             ) : screen === 'discover' ? (
               <>
-                <View style={styles.searchSection}>
+                {selectedPillar !== 'charts' && <View style={styles.searchSection}>
                   <View style={styles.searchInputWrap}>
                     <Search color="#718077" size={17} />
                     <TextInput
@@ -701,11 +721,11 @@ export default function DiscoverScreen() {
                       )}
                     </View>
                   )}
-                </View>
+                </View>}
 
                 <View style={styles.pillarHeader}>
                   <Text style={styles.sectionLabel}>BOOK CATEGORIES</Text>
-                  <Pressable
+                  {selectedPillar !== 'charts' && <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={selectedPillar ? `Surprise me with a ${pillars.find((item) => item.id === selectedPillar)?.label} book` : 'Surprise me with a book from any category'}
                     disabled={syncStatus === 'loading' || categoryBooks.length === 0}
@@ -714,7 +734,7 @@ export default function DiscoverScreen() {
                   >
                     <Sparkles color="#fffaf6" size={14} />
                     <Text style={styles.surpriseText}>SURPRISE ME</Text>
-                  </Pressable>
+                  </Pressable>}
                 </View>
 
                 <View style={styles.categoryRow}>
@@ -727,7 +747,9 @@ export default function DiscoverScreen() {
                       <View style={[styles.categoryDot, { backgroundColor: pillar.color }]} />
                       <View style={styles.categoryButtonCopy}>
                         <Text style={[styles.categoryButtonTitle, selected && styles.categoryButtonTitleSelected]}>{pillar.label}</Text>
-                        <Text style={[styles.categoryButtonCount, selected && styles.categoryButtonCountSelected]}>{count} available</Text>
+                        <Text style={[styles.categoryButtonCount, selected && styles.categoryButtonCountSelected]}>
+                          {pillar.id === 'charts' ? `${chartData.listings.length} listed` : `${count} available`}
+                        </Text>
                       </View>
                     </Pressable>;
                   })}
@@ -737,10 +759,101 @@ export default function DiscoverScreen() {
                   <Text style={styles.sectionLabel}>
                     {currentPillar?.label.toUpperCase() ?? 'CHOOSE A CATEGORY'}
                   </Text>
-                  <Text style={styles.cardPosition}>{book ? 'YOUR NEXT READ' : selectedPillar ? 'CATEGORY EMPTY · CHOOSE AGAIN' : 'READY WHEN YOU ARE'}</Text>
+                  <Text style={styles.cardPosition}>
+                    {selectedPillar === 'charts'
+                      ? chartLoadError ? 'SIGNALS UNAVAILABLE' : chartData.listings.length ? 'DATED RANKINGS' : 'NO DATED LISTINGS'
+                      : book ? 'YOUR NEXT READ' : selectedPillar ? 'CATEGORY EMPTY · CHOOSE AGAIN' : 'READY WHEN YOU ARE'}
+                  </Text>
                 </View>
 
-                {book ? (
+                {selectedPillar === 'charts' ? chartLoadError ? (
+                  <View style={styles.emptyState}>
+                    <View style={styles.emptyIcon}><BookOpen color="#3d735f" size={24} /></View>
+                    <Text style={styles.emptyTitle}>Chart signals are unavailable.</Text>
+                    <Text style={styles.emptyCopy}>Dated rankings could not be loaded.</Text>
+                  </View>
+                ) : chartData.listings.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <View style={styles.emptyIcon}><BookOpen color="#3d735f" size={24} /></View>
+                    <Text style={styles.emptyTitle}>No dated chart listings yet.</Text>
+                    <Text style={styles.emptyCopy}>Rankings will appear here with their market, source, and chart date.</Text>
+                  </View>
+                ) : (
+                  <View style={styles.chartBoard}>
+                    {Object.entries(chartGroups).map(([sourceId, listings]) => {
+                      const source = listings[0];
+                      return (
+                        <View key={sourceId} style={styles.chartSourceGroup}>
+                          <View style={styles.chartSourceHeading}>
+                            <View style={styles.chartSourceCopy}>
+                              <Text style={styles.chartSourceTitle}>{source.marketCode} · {source.listName}</Text>
+                              <Text style={styles.chartSourceMeta}>
+                                {source.chartKind === 'reader_trend'
+                                  ? 'READER TREND'
+                                  : source.chartKind === 'audio_bestseller' ? 'AUDIO BESTSELLER' : 'BESTSELLER'} · {formatSignalDate(source.chartDate)} · {listings.length} TITLES
+                              </Text>
+                            </View>
+                            <Pressable
+                              accessibilityRole="link"
+                              accessibilityLabel={`View source terms for ${source.listName}`}
+                              onPress={() => void Linking.openURL(source.termsUrl)}
+                              style={styles.chartSourceLink}
+                            >
+                              <ExternalLink color="#55766a" size={15} />
+                            </Pressable>
+                          </View>
+                          {listings.map((listing) => {
+                            const activity = listing.bookId ? chartData.activityByBookId[listing.bookId] : undefined;
+                            const change = activity?.ratingsCountChange;
+                            return (
+                              <View key={listing.id} style={styles.chartEntryRow}>
+                                <Text accessibilityLabel={`Rank ${listing.rank}`} style={styles.chartRank}>{String(listing.rank).padStart(2, '0')}</Text>
+                                <View style={styles.chartEntryCopy}>
+                                  <Text style={styles.chartEntryTitle}>{listing.title}</Text>
+                                  <Text style={styles.chartEntryAuthor}>{listing.author || 'Author not listed'}</Text>
+                                  <View style={[styles.chartSignalBadge, listing.chartKind === 'reader_trend' && styles.chartSignalBadgeTrend]}>
+                                    <Text style={[styles.chartSignalBadgeText, listing.chartKind === 'reader_trend' && styles.chartSignalBadgeTrendText]}>
+                                      {listing.chartKind === 'reader_trend'
+                                        ? 'READER TREND'
+                                        : listing.chartKind === 'audio_bestseller' ? 'AUDIO BESTSELLER' : 'RANKED BESTSELLER'}
+                                    </Text>
+                                  </View>
+                                  {activity ? (
+                                    <View style={styles.chartActivityRow}>
+                                      <Text style={styles.chartActivityText}>
+                                        OPEN LIBRARY · {activity.ratingsCount.toLocaleString()} RATINGS
+                                        {activity.ratingsAverage !== null ? ` · ${activity.ratingsAverage.toFixed(1)}/5` : ''}
+                                        {typeof change === 'number' ? ` · ${change > 0 ? '+' : ''}${change.toLocaleString()} SINCE ${formatSignalDate(activity.previousSnapshotDate!)}` : ''}
+                                      </Text>
+                                      <Pressable
+                                        accessibilityRole="link"
+                                        accessibilityLabel={`View ${listing.title} on Open Library`}
+                                        onPress={() => void Linking.openURL(activity.workUrl)}
+                                        style={styles.chartActivityLink}
+                                      >
+                                        <ExternalLink color="#55766a" size={13} />
+                                      </Pressable>
+                                    </View>
+                                  ) : null}
+                                </View>
+                                {listing.chartKind === 'reader_trend' ? (
+                                  <Pressable
+                                    accessibilityRole="link"
+                                    accessibilityLabel={`View ${listing.title} on Open Library`}
+                                    onPress={() => void Linking.openURL(listing.sourceUrl)}
+                                    style={styles.chartSourceLink}
+                                  >
+                                    <ExternalLink color="#55766a" size={15} />
+                                  </Pressable>
+                                ) : listing.isbn13 ? <Text style={styles.chartIsbn}>ISBN {listing.isbn13}</Text> : null}
+                              </View>
+                            );
+                          })}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : book ? (
                   <Animated.View
                     {...panResponder.panHandlers}
                     style={[
@@ -1083,6 +1196,26 @@ const styles = StyleSheet.create({
   surpriseText: { color: '#346c5c', fontSize: 12, fontWeight: '700' },
   cardMetaRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
   cardPosition: { color: '#98a199', fontSize: 9, fontWeight: '700', letterSpacing: 0.8 },
+  chartBoard: { maxWidth: 860, width: '100%', alignSelf: 'center', borderTopWidth: 1, borderTopColor: '#d9dfd7' },
+  chartSourceGroup: { borderBottomWidth: 1, borderBottomColor: '#d9dfd7', paddingBottom: 9 },
+  chartSourceHeading: { minHeight: 65, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1, borderBottomColor: '#e5e9e3' },
+  chartSourceCopy: { flex: 1, minWidth: 0 },
+  chartSourceTitle: { color: '#34433b', fontSize: 13, lineHeight: 18, fontWeight: '700' },
+  chartSourceMeta: { color: '#89958c', fontSize: 8, lineHeight: 13, fontWeight: '700', marginTop: 4 },
+  chartSourceLink: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  chartEntryRow: { minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ecefe9' },
+  chartRank: { width: 38, color: '#6177a2', fontSize: 22, lineHeight: 27, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  chartEntryCopy: { flex: 1, minWidth: 0 },
+  chartEntryTitle: { color: '#29382f', fontSize: 13, lineHeight: 18, fontWeight: '600' },
+  chartEntryAuthor: { color: '#758279', fontSize: 10, lineHeight: 15, marginTop: 2 },
+  chartSignalBadge: { alignSelf: 'flex-start', marginTop: 5, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 3, backgroundColor: '#edf0f6' },
+  chartSignalBadgeTrend: { backgroundColor: '#e7f0e9' },
+  chartSignalBadgeText: { color: '#536d99', fontSize: 7, lineHeight: 10, fontWeight: '800' },
+  chartSignalBadgeTrendText: { color: '#34755e' },
+  chartIsbn: { color: '#8b968d', fontSize: 8, lineHeight: 12, textAlign: 'right', maxWidth: 100 },
+  chartActivityRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
+  chartActivityText: { flexShrink: 1, color: '#527160', fontSize: 8, lineHeight: 13, fontWeight: '700' },
+  chartActivityLink: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   bookCard: { minHeight: 382, maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', backgroundColor: '#fffefa', borderWidth: 1, borderColor: '#e1e4dc', borderRadius: 6, overflow: 'hidden', shadowColor: '#263b30', shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
   coverFrame: { width: '37%', minHeight: 382, position: 'relative', overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   coverFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22, gap: 12 },

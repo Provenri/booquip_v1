@@ -9,6 +9,9 @@ verify_jwt = true
 [functions.tmdb-adaptation-sync]
 verify_jwt = false
 
+[functions.global-chart-sync]
+verify_jwt = false
+
 [functions.social-ghostwriter]
 verify_jwt = true
 
