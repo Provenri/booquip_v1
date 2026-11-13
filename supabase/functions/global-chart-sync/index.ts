@@ -1,3 +1,6 @@
+// @ts-ignore Deno resolves npm: imports when bundling Edge Functions.
+import { XMLParser } from 'npm:fast-xml-parser@5.12.1';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'content-type, x-chart-sync-secret',
@@ -163,7 +166,74 @@ edgeRuntime.serve(async (request: Request) => {
     const report = {
       nyt: { configured: Boolean(edgeRuntime.env.get('NYT_API_KEY')), sources: 0, entries: 0, errors: 0 },
       openLibrary: { configured: Boolean(edgeRuntime.env.get('OPENLIBRARY_USER_AGENT')), trendSources: 0, trendEntries: 0, links: 0, snapshots: 0, errors: 0 },
+      googleTrends: { feeds: 0, topics: 0, errors: 0 },
     };
+
+    const trendParser = new XMLParser({ ignoreAttributes: true, removeNSPrefix: true });
+    for (const { countryCode, geo } of [{ countryCode: 'US', geo: 'US' }, { countryCode: 'UK', geo: 'GB' }]) {
+      report.googleTrends.feeds += 1;
+      try {
+        const feedUrl = `https://trends.google.com/trending/rss?geo=${geo}`;
+        const feedResponse = await fetch(feedUrl, {
+          headers: { 'User-Agent': 'BooQuip/1.0 (https://booquipv1.vercel.app)' },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!feedResponse.ok) {
+          report.googleTrends.errors += 1;
+          continue;
+        }
+
+        const xml = await feedResponse.text();
+        if (xml.length > 2000000) {
+          report.googleTrends.errors += 1;
+          continue;
+        }
+        const parsed = trendParser.parse(xml);
+        const rawItems = parsed?.rss?.channel?.item;
+        const items = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
+        const fetchedAt = new Date();
+        const rows = items.flatMap((item: Record<string, unknown>) => {
+          const topic = typeof item.title === 'string' ? item.title.trim().slice(0, 200) : '';
+          const publishedAt = typeof item.pubDate === 'string' ? new Date(item.pubDate) : null;
+          if (!topic || !publishedAt || !Number.isFinite(publishedAt.getTime())) return [];
+          return [{
+            country_code: countryCode,
+            topic,
+            published_at: publishedAt.toISOString(),
+            source_url: feedUrl,
+            fetched_at: fetchedAt.toISOString(),
+            expires_at: new Date(fetchedAt.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          }];
+        }).slice(0, 25);
+
+        if (rows.length === 0) {
+          report.googleTrends.errors += 1;
+          continue;
+        }
+        const topicsUrl = restUrl('quip_trend_topics');
+        topicsUrl.searchParams.set('on_conflict', 'country_code,topic,published_at');
+        const topicsResponse = await fetch(topicsUrl, {
+          method: 'POST',
+          headers: { ...supabaseHeaders, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: JSON.stringify(rows),
+        });
+        if (!topicsResponse.ok) {
+          report.googleTrends.errors += 1;
+          continue;
+        }
+        report.googleTrends.topics += rows.length;
+      } catch {
+        report.googleTrends.errors += 1;
+      }
+    }
+
+    const expiredTopicsUrl = restUrl('quip_trend_topics');
+    expiredTopicsUrl.searchParams.set('expires_at', `lt.${new Date().toISOString()}`);
+    const expiredTopicsResponse = await fetch(expiredTopicsUrl, {
+      method: 'DELETE',
+      headers: { ...supabaseHeaders, Prefer: 'return=minimal' },
+    });
+    if (!expiredTopicsResponse.ok) report.googleTrends.errors += 1;
 
     const nytApiKey = edgeRuntime.env.get('NYT_API_KEY');
     if (nytApiKey) {

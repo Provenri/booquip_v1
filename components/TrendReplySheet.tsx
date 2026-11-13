@@ -3,6 +3,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Check, Copy, MessageCircle, X } from 'lucide-react-native';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { Book } from '@/lib/books';
+import { loadQuipTrendTopics, type QuipTrendTopic } from '@/lib/quipTrends';
 
 type TrendReplySheetProps = {
   visible: boolean;
@@ -17,14 +18,35 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
   const [errorMessage, setErrorMessage] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const [trendTopics, setTrendTopics] = useState<QuipTrendTopic[]>([]);
+  const [topicCountry, setTopicCountry] = useState<'ALL' | 'US' | 'UK'>('ALL');
+  const [topicsStatus, setTopicsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const replyLimit = 600;
+  const visibleTopics = trendTopics
+    .filter((topic) => topicCountry === 'ALL' || topic.countryCode === topicCountry)
+    .slice(0, 8);
 
   useEffect(() => {
     if (!visible) return;
+    let active = true;
     setTrendText('');
     setReply('');
     setErrorMessage('');
     setIsCopied(false);
+    setTopicCountry('ALL');
+    setTopicsStatus('loading');
+    void loadQuipTrendTopics()
+      .then((topics) => {
+        if (!active) return;
+        setTrendTopics(topics);
+        setTopicsStatus('ready');
+      })
+      .catch(() => {
+        if (!active) return;
+        setTrendTopics([]);
+        setTopicsStatus('error');
+      });
+    return () => { active = false; };
   }, [visible]);
 
   const generate = async () => {
@@ -69,6 +91,46 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
             <Text style={styles.description}>
               Your reply will draw on all {books.length} Quip-enabled Read {books.length === 1 ? 'book' : 'books'}.
             </Text>
+
+            <Text style={styles.fieldLabel}>TRENDING TOPICS</Text>
+            <View accessibilityRole="tablist" style={styles.countryFilter}>
+              {(['ALL', 'US', 'UK'] as const).map((country) => (
+                <Pressable
+                  key={country}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: topicCountry === country }}
+                  onPress={() => setTopicCountry(country)}
+                  style={[styles.countryTab, topicCountry === country && styles.countryTabSelected]}
+                >
+                  <Text style={[styles.countryTabLabel, topicCountry === country && styles.countryTabLabelSelected]}>
+                    {country === 'ALL' ? 'All' : country}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            {topicsStatus === 'loading' ? (
+              <Text style={styles.fieldHint}>Loading recent topics…</Text>
+            ) : topicsStatus === 'error' ? (
+              <Text style={styles.fieldHint}>Trend suggestions are unavailable. You can still enter a topic below.</Text>
+            ) : visibleTopics.length > 0 ? (
+              <View style={styles.topicList}>
+                {visibleTopics.map((topic) => (
+                  <Pressable
+                    key={topic.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use ${topic.countryCode} trend: ${topic.topic}`}
+                    onPress={() => { setTrendText(topic.topic); setReply(''); setIsCopied(false); }}
+                    style={({ pressed }) => [styles.topicRow, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.topicText}>{topic.topic}</Text>
+                    <Text style={styles.topicCountry}>{topic.countryCode}</Text>
+                  </Pressable>
+                ))}
+                <Text style={styles.topicAttribution}>Google Trends · recent searches</Text>
+              </View>
+            ) : (
+              <Text style={styles.fieldHint}>No recent topics for this filter. You can still enter a topic below.</Text>
+            )}
 
             <Text style={styles.fieldLabel}>POST OR TOPIC</Text>
             <TextInput
@@ -137,6 +199,16 @@ const styles = StyleSheet.create({
   eyebrow: { color: '#6f8175', fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
   title: { color: '#29382f', fontSize: 25, lineHeight: 31, fontWeight: '600', marginTop: 6 },
   description: { color: '#68766d', fontSize: 13, lineHeight: 19, marginTop: 7 },
+  countryFilter: { flexDirection: 'row', alignSelf: 'flex-start', gap: 3, padding: 3, marginTop: 7, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, backgroundColor: '#f0f3ee' },
+  countryTab: { minWidth: 48, minHeight: 28, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, borderRadius: 3 },
+  countryTabSelected: { backgroundColor: '#34755e' },
+  countryTabLabel: { color: '#526259', fontSize: 9, fontWeight: '700' },
+  countryTabLabelSelected: { color: '#fffaf6' },
+  topicList: { marginTop: 8, borderTopWidth: 1, borderTopColor: '#e5e9e3' },
+  topicRow: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#e8ece6' },
+  topicText: { flex: 1, color: '#35433b', fontSize: 11, lineHeight: 16 },
+  topicCountry: { minWidth: 27, color: '#78887d', fontSize: 8, fontWeight: '800', textAlign: 'center' },
+  topicAttribution: { color: '#879188', fontSize: 8, marginTop: 5 },
   bookSearch: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, paddingHorizontal: 11, marginTop: 17, backgroundColor: '#fff' },
   bookSearchInput: { flex: 1, minWidth: 0, height: 40, color: '#29382f', fontSize: 12 },
   bookResults: { borderWidth: 1, borderColor: '#d8e0d7', borderTopWidth: 0, maxHeight: 190, overflow: 'hidden' },
@@ -152,11 +224,6 @@ const styles = StyleSheet.create({
   noBooks: { color: '#78857d', fontSize: 11, lineHeight: 16, marginTop: 10 },
   fieldHint: { color: '#879188', fontSize: 10, marginTop: 7 },
   fieldLabel: { color: '#78887d', fontSize: 8, fontWeight: '700', letterSpacing: 0.9, marginTop: 16 },
-  platformControl: { flexDirection: 'row', padding: 3, marginTop: 7, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 5, backgroundColor: '#f0f3ee' },
-  platformTab: { flex: 1, minHeight: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 3 },
-  platformTabSelected: { backgroundColor: '#34755e' },
-  platformLabel: { color: '#526259', fontSize: 11, fontWeight: '600' },
-  platformLabelSelected: { color: '#fffaf6' },
   trendInput: { minHeight: 84, maxHeight: 150, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, padding: 10, marginTop: 7, color: '#29382f', backgroundColor: '#fff', fontSize: 12, lineHeight: 18 },
   replyInput: { minHeight: 100, maxHeight: 220, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, padding: 10, marginTop: 7, color: '#29382f', backgroundColor: '#fff', fontSize: 13, lineHeight: 19 },
   characterCount: { color: '#879188', fontSize: 9, textAlign: 'right', marginTop: 4 },
