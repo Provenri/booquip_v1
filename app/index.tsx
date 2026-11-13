@@ -37,6 +37,8 @@ import AccountSheet from '@/components/AccountSheet';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { deleteUserSwipe, getOrCreateAnonymousUser, loadUserSwipes, saveQuipEnabled, saveUserSwipe } from '@/lib/swipes';
 import { getBookOnRamp } from '@/lib/onramp';
+import TrendReplySheet from '@/components/TrendReplySheet';
+import { generateTrendReply } from '@/lib/trendInterceptor';
 import { EMPTY_CHART_DATA, loadCatalog, loadChartData, loadPillars, type ChartData } from '@/lib/catalog';
 
 type Screen = 'discover' | 'tbr' | 'read' | 'snoozed';
@@ -102,6 +104,7 @@ export default function DiscoverScreen() {
   const [pillars, setPillars] = useState(PILLARS);
   const [chartData, setChartData] = useState<ChartData>(EMPTY_CHART_DATA);
   const [chartLoadError, setChartLoadError] = useState(false);
+  const [isTrendReplyVisible, setIsTrendReplyVisible] = useState(false);
   const [frozenUntil, setFrozenUntil] = useState<Record<string, number>>({});
   const [selectedPillar, setSelectedPillar] = useState<Pillar | null>(null);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
@@ -682,6 +685,15 @@ export default function DiscoverScreen() {
                     <Text style={styles.quipCount}>{quipBooks.length} {quipBooks.length === 1 ? 'BOOK' : 'BOOKS'} IN QUIP</Text>
                     <Text style={styles.quipDescription}>Read books you switch on are collected here.</Text>
                   </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={quipBooks.length === 0 || syncStatus === 'loading'}
+                    onPress={() => setIsTrendReplyVisible(true)}
+                    style={({ pressed }) => [styles.quipButton, (quipBooks.length === 0 || syncStatus === 'loading') && styles.actionDisabled, pressed && styles.actionPressed]}
+                  >
+                    <MessageCircle color="#fffaf6" size={16} />
+                    <Text style={styles.quipButtonText}>REPLY TO TREND</Text>
+                  </Pressable>
                 </View>
                 {quipBooks.length === 0 ? (
                   <View style={styles.quipEmptyState}>
@@ -1090,6 +1102,12 @@ export default function DiscoverScreen() {
           setAuthRetryCount((count) => count + 1);
         }}
       />
+      <TrendReplySheet
+        visible={isTrendReplyVisible}
+        books={quipBooks}
+        onClose={() => setIsTrendReplyVisible(false)}
+        onGenerate={generateTrendReply}
+      />
     </SafeAreaView>
   );
 }
@@ -1134,6 +1152,8 @@ const styles = StyleSheet.create({
   quipIntro: { flex: 1, minWidth: 220 },
   quipCount: { color: '#688074', fontSize: 9, fontWeight: '700' },
   quipDescription: { maxWidth: 470, color: '#34433b', fontSize: 18, lineHeight: 27, marginTop: 10, marginBottom: 20 },
+  quipButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, borderRadius: 4, backgroundColor: '#34755e' },
+  quipButtonText: { color: '#fffaf6', fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
   quipEmptyState: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 14, padding: 18, borderWidth: 1, borderColor: '#dfe4dc', borderStyle: 'dashed', borderRadius: 5, backgroundColor: '#f8f9f6' },
   quipEmptyCopy: { flex: 1, minWidth: 200 },
   quipShelf: { borderTopWidth: 1, borderTopColor: '#dfe4dc' },
