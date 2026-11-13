@@ -9,11 +9,12 @@ import type { TrendBookScope } from '@/lib/trendInterceptor';
 type TrendReplySheetProps = {
   visible: boolean;
   books: Book[];
+  initialBookId?: string | null;
   onClose: () => void;
   onGenerate: (scope: TrendBookScope, bookId: string | null, platform: SocialPlatform, trendText: string) => Promise<string>;
 };
 
-export default function TrendReplySheet({ visible, books, onClose, onGenerate }: TrendReplySheetProps) {
+export default function TrendReplySheet({ visible, books, initialBookId = null, onClose, onGenerate }: TrendReplySheetProps) {
   const [bookQuery, setBookQuery] = useState('');
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [bookScope, setBookScope] = useState<TrendBookScope>('single');
@@ -32,14 +33,14 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
   useEffect(() => {
     if (!visible) return;
     setBookQuery('');
-    setSelectedBookId(null);
+    setSelectedBookId(initialBookId && books.some((book) => book.id === initialBookId) ? initialBookId : null);
     setBookScope('single');
     setPlatform('linkedin');
     setTrendText('');
     setReply('');
     setErrorMessage('');
     setIsCopied(false);
-  }, [visible]);
+  }, [visible, initialBookId]);
 
   const changePlatform = (nextPlatform: SocialPlatform) => {
     setPlatform(nextPlatform);
