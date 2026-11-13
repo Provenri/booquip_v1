@@ -25,7 +25,6 @@ import {
   ExternalLink,
   Tv,
   MessageCircle,
-  Share2,
   Search,
   Sparkles,
   UserRound,
@@ -36,12 +35,8 @@ import { BOOKS, PILLARS, type Book, type Pillar } from '@/lib/books';
 import { linkCurrentUserEmail, resendCurrentUserEmailChange, signInWithEmail } from '@/lib/auth';
 import AccountSheet from '@/components/AccountSheet';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { deleteUserSwipe, getOrCreateAnonymousUser, loadUserSwipes, saveUserSwipe } from '@/lib/swipes';
+import { deleteUserSwipe, getOrCreateAnonymousUser, loadUserSwipes, saveQuipEnabled, saveUserSwipe } from '@/lib/swipes';
 import { getBookOnRamp } from '@/lib/onramp';
-import { generateSocialDraft } from '@/lib/socialGhostwriter';
-import SocialDraftSheet from '@/components/SocialDraftSheet';
-import TrendReplySheet from '@/components/TrendReplySheet';
-import { generateTrendReply } from '@/lib/trendInterceptor';
 import { EMPTY_CHART_DATA, loadCatalog, loadChartData, loadPillars, type ChartData } from '@/lib/catalog';
 
 type Screen = 'discover' | 'tbr' | 'read' | 'snoozed';
@@ -102,6 +97,7 @@ export default function DiscoverScreen() {
   const [screen, setScreen] = useState<Screen>('discover');
   const [tbrIds, setTbrIds] = useState<string[]>([]);
   const [readIds, setReadIds] = useState<string[]>([]);
+  const [quipBookIds, setQuipBookIds] = useState<string[]>([]);
   const [books, setBooks] = useState<Book[]>(BOOKS);
   const [pillars, setPillars] = useState(PILLARS);
   const [chartData, setChartData] = useState<ChartData>(EMPTY_CHART_DATA);
@@ -110,9 +106,6 @@ export default function DiscoverScreen() {
   const [selectedPillar, setSelectedPillar] = useState<Pillar | null>(null);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [socialDraftBook, setSocialDraftBook] = useState<Book | null>(null);
-  const [isTrendReplyVisible, setIsTrendReplyVisible] = useState(false);
-  const [trendReplyBookId, setTrendReplyBookId] = useState<string | null>(null);
   const [onRampText, setOnRampText] = useState('');
   const [onRampError, setOnRampError] = useState('');
   const [isOnRampLoading, setIsOnRampLoading] = useState(false);
@@ -181,10 +174,14 @@ export default function DiscoverScreen() {
 
         const restoredTbr: string[] = [];
         const restoredRead: string[] = [];
+        const restoredQuip: string[] = [];
         const restoredFrozen: Record<string, number> = {};
         for (const swipe of swipes) {
           if (swipe.state === 'tbr') restoredTbr.push(swipe.book_id);
-          if (swipe.state === 'read') restoredRead.push(swipe.book_id);
+          if (swipe.state === 'read') {
+            restoredRead.push(swipe.book_id);
+            if (swipe.quip_enabled) restoredQuip.push(swipe.book_id);
+          }
           if (swipe.state === 'frozen' && swipe.freeze_until) {
             const timestamp = Date.parse(swipe.freeze_until);
             if (timestamp > Date.now()) restoredFrozen[swipe.book_id] = timestamp;
@@ -197,6 +194,7 @@ export default function DiscoverScreen() {
         setIsAnonymous(activeUser.is_anonymous !== false || !activeUser.email_confirmed_at);
         setTbrIds(restoredTbr);
         setReadIds(restoredRead);
+        setQuipBookIds(restoredQuip);
         setFrozenUntil(restoredFrozen);
         setSyncMessage('');
         setSyncStatus('connected');
@@ -323,6 +321,29 @@ export default function DiscoverScreen() {
   };
   actionRef.current = handleAction;
 
+  const handleQuipToggle = (bookId: string) => {
+    if (syncStatus === 'loading' || isSaving) return;
+    const wasEnabled = quipBookIds.includes(bookId);
+    const nextEnabled = !wasEnabled;
+    setQuipBookIds((ids) => nextEnabled ? [...ids, bookId] : ids.filter((id) => id !== bookId));
+    if (!userId || !isSupabaseConfigured) return;
+
+    setIsSaving(true);
+    void saveQuipEnabled(userId, bookId, nextEnabled)
+      .then(() => {
+        setSyncMessage('');
+        setSyncStatus('connected');
+      })
+      .catch(() => {
+        setQuipBookIds((ids) => wasEnabled
+          ? ids.includes(bookId) ? ids : [...ids, bookId]
+          : ids.filter((id) => id !== bookId));
+        setSyncMessage('Could not update the Quip setting. The previous setting was restored.');
+        setSyncStatus('error');
+      })
+      .finally(() => setIsSaving(false));
+  };
+
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_event, gesture) =>
@@ -425,6 +446,7 @@ export default function DiscoverScreen() {
     const sourceScreen = screen;
     const wasInTbr = tbrIds.includes(bookId);
     const wasRead = readIds.includes(bookId);
+    const wasQuipEnabled = quipBookIds.includes(bookId);
     if (!shelfBook || (!wasInTbr && !wasRead) || isSaving) return;
     const returnToDiscovery = shelfBook.isActive !== false;
     if (isSupabaseConfigured && !userId) {
@@ -435,6 +457,7 @@ export default function DiscoverScreen() {
 
     setTbrIds((ids) => ids.filter((id) => id !== bookId));
     setReadIds((ids) => ids.filter((id) => id !== bookId));
+    setQuipBookIds((ids) => ids.filter((id) => id !== bookId));
     setSelectedPillar(returnToDiscovery ? shelfBook.pillar : null);
     setSelectedBookId(returnToDiscovery ? shelfBook.id : null);
     setSearchQuery('');
@@ -454,6 +477,7 @@ export default function DiscoverScreen() {
       .catch(() => {
         if (wasInTbr) setTbrIds((ids) => ids.includes(bookId) ? ids : [...ids, bookId]);
         if (wasRead) setReadIds((ids) => ids.includes(bookId) ? ids : [...ids, bookId]);
+        if (wasRead && wasQuipEnabled) setQuipBookIds((ids) => ids.includes(bookId) ? ids : [...ids, bookId]);
         setSelectedBookId(null);
         setScreen(sourceScreen);
         setSyncMessage('Could not return this book to discovery. It is still on your shelf; try again.');
@@ -492,6 +516,7 @@ export default function DiscoverScreen() {
     setIsAnonymous(true);
     setTbrIds([]);
     setReadIds([]);
+    setQuipBookIds([]);
     setFrozenUntil({});
     setSelectedBookId(null);
     setSelectedPillar(null);
@@ -514,13 +539,11 @@ export default function DiscoverScreen() {
     setIsAnonymous(true);
     setTbrIds([]);
     setReadIds([]);
+    setQuipBookIds([]);
     setFrozenUntil({});
     setSelectedBookId(null);
     setSelectedPillar(null);
     setSearchQuery('');
-    setSocialDraftBook(null);
-    setIsTrendReplyVisible(false);
-    setTrendReplyBookId(null);
     setScreen('discover');
     setSection('home');
     setIsAccountSheetVisible(false);
@@ -528,10 +551,7 @@ export default function DiscoverScreen() {
   };
 
   const readBooks = books.filter((item) => readIds.includes(item.id));
-  const openTrendReply = (bookId: string | null = null) => {
-    setTrendReplyBookId(bookId);
-    setIsTrendReplyVisible(true);
-  };
+  const quipBooks = readBooks.filter((item) => quipBookIds.includes(item.id));
   const shelfBooks = screen === 'tbr'
     ? books.filter((item) => tbrIds.includes(item.id))
     : screen === 'read'
@@ -619,7 +639,7 @@ export default function DiscoverScreen() {
             <View style={styles.pageHeading}>
               <View>
                 <Text style={styles.eyebrow}>{section === 'home' ? 'YOUR LIBRARY' : section === 'book' ? 'BOOK' : 'QUIP'}</Text>
-                <Text style={styles.pageTitle}>{section === 'home' ? 'Your Library' : section === 'book' ? screenTitle : 'Reply to a trend'}</Text>
+                <Text style={styles.pageTitle}>{section === 'home' ? 'Your Library' : section === 'book' ? screenTitle : 'Your Quip library'}</Text>
               </View>
               <Text style={styles.issueMark}>NO. 001 <Text style={styles.issueDot}>/</Text> 2026</Text>
             </View>
@@ -646,7 +666,7 @@ export default function DiscoverScreen() {
                   <View style={styles.hubSectionCopy}>
                     <Text style={styles.hubSectionEyebrow}>WRITE FROM WHAT YOU READ</Text>
                     <Text style={styles.hubSectionTitle}>Quip</Text>
-                    <Text style={styles.hubSectionDescription}>{readBooks.length ? 'Draft a book-informed reply to a current conversation.' : 'Mark a book as read to start a trend reply.'}</Text>
+                    <Text style={styles.hubSectionDescription}>{quipBooks.length ? `${quipBooks.length} Read ${quipBooks.length === 1 ? 'book is' : 'books are'} switched on for Quip.` : 'Choose which Read books to keep in your Quip library.'}</Text>
                   </View>
                   <ArrowRight color="#728077" size={18} />
                 </Pressable>
@@ -659,45 +679,34 @@ export default function DiscoverScreen() {
               <View style={styles.quipSection}>
                 <View style={styles.quipHeader}>
                   <View style={styles.quipIntro}>
-                    <Text style={styles.quipCount}>{readBooks.length} READ {readBooks.length === 1 ? 'BOOK' : 'BOOKS'} AVAILABLE FOR CONTEXT</Text>
-                    <Text style={styles.quipDescription}>Use one book or your entire Read shelf to shape an editable reply to a post or topic.</Text>
+                    <Text style={styles.quipCount}>{quipBooks.length} {quipBooks.length === 1 ? 'BOOK' : 'BOOKS'} IN QUIP</Text>
+                    <Text style={styles.quipDescription}>Read books you switch on are collected here.</Text>
                   </View>
-                  <Pressable accessibilityRole="button" disabled={readBooks.length === 0} onPress={() => openTrendReply()}
-                    style={({ pressed }) => [styles.quipButton, readBooks.length === 0 && styles.actionDisabled, pressed && styles.actionPressed]}>
-                    <MessageCircle color="#fffaf6" size={16} />
-                    <Text style={styles.quipButtonText}>REPLY TO TREND</Text>
-                  </Pressable>
                 </View>
-                {readBooks.length === 0 ? (
+                {quipBooks.length === 0 ? (
                   <View style={styles.quipEmptyState}>
                     <View style={styles.emptyIcon}><BookOpen color="#3d735f" size={22} /></View>
                     <View style={styles.quipEmptyCopy}>
-                      <Text style={styles.emptyTitle}>Your Read shelf is empty.</Text>
-                      <Text style={styles.emptyCopy}>Mark a book as read and it will appear here as context for your replies.</Text>
+                      <Text style={styles.emptyTitle}>{readBooks.length ? 'Quip is off for all Read books.' : 'Your Read shelf is empty.'}</Text>
+                      <Text style={styles.emptyCopy}>{readBooks.length ? 'Turn Quip on for a book from your Read shelf to add it here.' : 'Mark a book as read, then switch Quip on to add it here.'}</Text>
                     </View>
                     <Pressable accessibilityRole="button" onPress={() => {
                       setSection('book');
-                      setScreen('discover');
+                      setScreen(readBooks.length ? 'read' : 'discover');
                       setSelectedPillar(null);
                       setSelectedBookId(null);
                     }} style={styles.resetButton}>
-                      <Sparkles color="#285f4e" size={16} /><Text style={styles.resetButtonText}>FIND A BOOK</Text>
+                      <Sparkles color="#285f4e" size={16} /><Text style={styles.resetButtonText}>{readBooks.length ? 'OPEN READ SHELF' : 'FIND A BOOK'}</Text>
                     </Pressable>
                   </View>
                 ) : (
                   <View style={styles.quipShelf}>
                     <View style={styles.quipShelfHeading}>
-                      <Text style={styles.sectionLabel}>YOUR READ SHELF</Text>
-                      <Text style={styles.stackCount}>{readBooks.length} {readBooks.length === 1 ? 'BOOK' : 'BOOKS'}</Text>
+                      <Text style={styles.sectionLabel}>SWITCHED ON FOR QUIP</Text>
+                      <Text style={styles.stackCount}>{quipBooks.length} {quipBooks.length === 1 ? 'BOOK' : 'BOOKS'}</Text>
                     </View>
-                    {readBooks.map((item) => (
-                      <Pressable
-                        key={item.id}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Reply using ${item.title}`}
-                        onPress={() => openTrendReply(item.id)}
-                        style={({ pressed }) => [styles.quipBookRow, pressed && styles.actionPressed]}
-                      >
+                    {quipBooks.map((item) => (
+                      <View key={item.id} style={styles.quipBookRow}>
                         <View style={[styles.quipBookCover, { backgroundColor: item.color }]}>
                           <BookOpen color="#fffaf0" size={18} strokeWidth={1.6} />
                         </View>
@@ -705,11 +714,8 @@ export default function DiscoverScreen() {
                           <Text style={styles.quipBookTitle}>{item.title}</Text>
                           <Text style={styles.quipBookAuthor}>{item.author}{item.year ? ` · ${item.year}` : ''}</Text>
                         </View>
-                        <View style={styles.quipBookAction}>
-                          <MessageCircle color="#477d6c" size={15} />
-                          <Text style={styles.quipBookActionLabel}>REPLY</Text>
-                        </View>
-                      </Pressable>
+                        <Text style={styles.quipEnabledLabel}>QUIP ON</Text>
+                      </View>
                     ))}
                   </View>
                 )}
@@ -977,16 +983,6 @@ export default function DiscoverScreen() {
                   <Text style={styles.sectionLabel}>{screen === 'tbr' ? 'SAVED FOR LATER' : screen === 'read' ? 'MARKED AS READ' : 'SNOOZED FOR LATER'}</Text>
                   <Text style={styles.stackCount}>{String(shelfBooks.length).padStart(2, '0')} BOOKS</Text>
                 </View>
-                {screen === 'read' && readBooks.length > 0 && (
-                  <Pressable
-                    accessibilityRole="button"
-                      onPress={() => openTrendReply()}
-                    style={({ pressed }) => [styles.trendEntryButton, pressed && styles.actionPressed]}
-                  >
-                    <MessageCircle color="#477d6c" size={16} />
-                    <Text style={styles.trendEntryLabel}>REPLY TO TREND</Text>
-                  </Pressable>
-                )}
                 {shelfBooks.length === 0 ? (
                   <View style={styles.emptyState}>
                     <View style={styles.emptyIcon}><BookOpen color="#3d735f" size={24} /></View>
@@ -1029,13 +1025,25 @@ export default function DiscoverScreen() {
                         )}
                         {screen === 'read' && (
                           <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={`Draft a social post about ${item.title}`}
-                            onPress={() => setSocialDraftBook(item)}
-                            style={({ pressed }) => [styles.draftPostButton, pressed && styles.actionPressed]}
+                            accessibilityRole="switch"
+                            accessibilityState={{
+                              checked: quipBookIds.includes(item.id),
+                              disabled: isSaving || syncStatus === 'loading',
+                            }}
+                            accessibilityLabel={`${quipBookIds.includes(item.id) ? 'Quip on for' : 'Quip off for'} ${item.title}`}
+                            disabled={isSaving || syncStatus === 'loading'}
+                            onPress={() => handleQuipToggle(item.id)}
+                            style={({ pressed }) => [
+                              styles.quipToggle,
+                              quipBookIds.includes(item.id) && styles.quipToggleEnabled,
+                              (isSaving || syncStatus === 'loading') && styles.actionDisabled,
+                              pressed && styles.actionPressed,
+                            ]}
                           >
-                            <Share2 color="#477d6c" size={14} />
-                            <Text style={styles.draftPostButtonText}>DRAFT</Text>
+                            <MessageCircle color={quipBookIds.includes(item.id) ? '#34755e' : '#718077'} size={14} />
+                            <Text style={[styles.quipToggleLabel, quipBookIds.includes(item.id) && styles.quipToggleLabelEnabled]}>
+                              {quipBookIds.includes(item.id) ? 'QUIP ON' : 'QUIP OFF'}
+                            </Text>
                           </Pressable>
                         )}
                         {screen !== 'snoozed' && (
@@ -1081,19 +1089,6 @@ export default function DiscoverScreen() {
           setIsAccountSheetVisible(false);
           setAuthRetryCount((count) => count + 1);
         }}
-      />
-      <SocialDraftSheet
-        visible={socialDraftBook !== null}
-        book={socialDraftBook}
-        onClose={() => setSocialDraftBook(null)}
-        onGenerate={generateSocialDraft}
-      />
-      <TrendReplySheet
-        visible={isTrendReplyVisible}
-        books={readBooks}
-        initialBookId={trendReplyBookId}
-        onClose={() => { setIsTrendReplyVisible(false); setTrendReplyBookId(null); }}
-        onGenerate={generateTrendReply}
       />
     </SafeAreaView>
   );
@@ -1148,10 +1143,7 @@ const styles = StyleSheet.create({
   quipBookCopy: { flex: 1, minWidth: 0 },
   quipBookTitle: { color: '#29382f', fontSize: 13, lineHeight: 18, fontWeight: '600' },
   quipBookAuthor: { color: '#78857d', fontSize: 10, lineHeight: 15, marginTop: 3 },
-  quipBookAction: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, minHeight: 36 },
-  quipBookActionLabel: { color: '#477d6c', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
-  quipButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, borderRadius: 4, backgroundColor: '#34755e' },
-  quipButtonText: { color: '#fffaf6', fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
+  quipEnabledLabel: { color: '#34755e', fontSize: 8, fontWeight: '800', letterSpacing: 0.4, paddingHorizontal: 8 },
   content: { width: '100%', maxWidth: 1050, alignSelf: 'center', paddingHorizontal: 56, paddingTop: 43, paddingBottom: 24 },
   contentMobile: { paddingHorizontal: 20, paddingTop: 25 },
   pageHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 33 },
@@ -1189,8 +1181,6 @@ const styles = StyleSheet.create({
   searchResultAuthor: { color: '#78857d', fontSize: 10, marginTop: 3 },
   searchResultShelf: { color: '#819087', fontSize: 8, fontWeight: '700', letterSpacing: 0.5 },
   searchEmpty: { color: '#718077', fontSize: 12, paddingHorizontal: 14, paddingVertical: 16 },
-  trendEntryButton: { minHeight: 38, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7, marginBottom: 15, paddingHorizontal: 11, borderRadius: 4, backgroundColor: '#e7eef0' },
-  trendEntryLabel: { color: '#3e6e60', fontSize: 8, fontWeight: '800', letterSpacing: 0.6 },
   surpriseButtonPressed: { backgroundColor: '#285e4c' },
   pillarRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 27 },
   pillarButton: { minHeight: 39, paddingHorizontal: 16, borderRadius: 5, borderWidth: 1, borderColor: '#d2dad2', justifyContent: 'center', backgroundColor: '#f8f9f6' },
@@ -1279,8 +1269,10 @@ const styles = StyleSheet.create({
   wakeButtonText: { color: '#765d3b', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
   returnBookButton: { minWidth: 58, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6, borderRadius: 4, backgroundColor: '#e5f1e8' },
   returnBookButtonText: { color: '#2f725b', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
-  draftPostButton: { minWidth: 58, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6, borderRadius: 4, backgroundColor: '#e7eef0' },
-  draftPostButtonText: { color: '#3e6e60', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
+  quipToggle: { minWidth: 82, height: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 7, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, backgroundColor: '#f5f6f2' },
+  quipToggleEnabled: { borderColor: '#b9d1c4', backgroundColor: '#e7f0e9' },
+  quipToggleLabel: { color: '#718077', fontSize: 8, fontWeight: '800', letterSpacing: 0.35 },
+  quipToggleLabelEnabled: { color: '#34755e' },
   pageFooter: { borderTopWidth: 1, borderTopColor: '#dfe4dc', paddingTop: 14, marginTop: 28, flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   footerCopy: { color: '#9aa49c', fontSize: 8, fontWeight: '700', letterSpacing: 0.8 },
 });
