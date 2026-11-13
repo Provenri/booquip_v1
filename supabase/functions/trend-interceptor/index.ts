@@ -29,7 +29,7 @@ edgeRuntime.serve(async (request: Request) => {
   if (!apiKey || !supabaseUrl || !anonKey) return jsonResponse(503, { error: 'Trend Interceptor is not configured yet.' });
   if (!authorization) return jsonResponse(401, { error: 'Sign in to generate a trend reply.' });
 
-  let payload: { trendText?: unknown; trendTopicId?: unknown };
+  let payload: { trendText?: unknown; trendTopicId?: unknown; bookIds?: unknown };
   try {
     payload = await request.json();
   } catch {
@@ -42,6 +42,13 @@ edgeRuntime.serve(async (request: Request) => {
   ) {
     return jsonResponse(400, { error: 'Pasted text is invalid.' });
   }
+  if (payload.bookIds !== undefined && (
+    !Array.isArray(payload.bookIds) || payload.bookIds.length < 1 || payload.bookIds.length > 200 ||
+    payload.bookIds.some((bookId) => typeof bookId !== 'string' || bookId.length < 1 || bookId.length > 120)
+  )) {
+    return jsonResponse(400, { error: 'The selected books are invalid.' });
+  }
+  const requestedBookIds = payload.bookIds as string[] | undefined;
 
   const headers = { apikey: anonKey, Authorization: authorization };
   try {
@@ -49,6 +56,9 @@ edgeRuntime.serve(async (request: Request) => {
     swipesUrl.searchParams.set('select', 'book_id');
     swipesUrl.searchParams.set('state', 'eq.read');
     swipesUrl.searchParams.set('quip_enabled', 'eq.true');
+    if (requestedBookIds) {
+      swipesUrl.searchParams.set('book_id', `in.(${requestedBookIds.map((bookId) => JSON.stringify(bookId)).join(',')})`);
+    }
     const swipeResponse = await fetch(swipesUrl, { headers });
     if (!swipeResponse.ok) return jsonResponse(502, { error: 'Could not verify the book on your Read shelf.' });
     const swipes = await swipeResponse.json();

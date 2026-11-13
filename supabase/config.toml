@@ -17,3 +17,6 @@ verify_jwt = true
 
 [functions.trend-interceptor]
 verify_jwt = true
+
+[functions.screenshot-topic-reader]
+verify_jwt = true

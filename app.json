@@ -6,7 +6,15 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "BooQuip uses your photo library so you can upload a screenshot of a post to reply to."
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true
     },

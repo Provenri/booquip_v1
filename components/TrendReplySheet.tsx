@@ -1,82 +1,154 @@
 import { useEffect, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { Check, Copy, MessageCircle, X } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Camera, Check, CheckSquare, Copy, MessageCircle, PenLine, Square, TrendingUp, X } from 'lucide-react-native';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { Book } from '@/lib/books';
-import { loadQuipTrendTopics, type QuipTrendTopic } from '@/lib/quipTrends';
+import { extractScreenshotTopic } from '@/lib/screenshotTopic';
+import type { QuipTrendTopic } from '@/lib/quipTrends';
+import TrendPickerSheet from '@/components/TrendPickerSheet';
+
+type TopicSource = 'write' | 'screenshot' | 'trend';
 
 type TrendReplySheetProps = {
   visible: boolean;
   books: Book[];
   onClose: () => void;
-  onGenerate: (trendText: string, trendTopicId: string | null) => Promise<string>;
+  onGenerate: (trendText: string, trendTopicId: string | null, bookIds: string[]) => Promise<string>;
 };
 
+const TOPIC_SOURCES: { id: TopicSource; label: string; icon: typeof PenLine }[] = [
+  { id: 'write', label: 'Write', icon: PenLine },
+  { id: 'screenshot', label: 'Screenshot', icon: Camera },
+  { id: 'trend', label: 'Trend', icon: TrendingUp },
+];
+
+const SCREENSHOT_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const MAX_SCREENSHOT_BASE64_LENGTH = 5_600_000;
+
 export default function TrendReplySheet({ visible, books, onClose, onGenerate }: TrendReplySheetProps) {
+  const [topicSource, setTopicSource] = useState<TopicSource>('write');
   const [trendText, setTrendText] = useState('');
-  const [selectedTrendTopicId, setSelectedTrendTopicId] = useState<string | null>(null);
+  const [selectedTrendTopic, setSelectedTrendTopic] = useState<QuipTrendTopic | null>(null);
+  const [isPickerVisible, setIsPickerVisible] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [hasExtractedText, setHasExtractedText] = useState(false);
+  const [selectedBookIds, setSelectedBookIds] = useState<string[]>([]);
   const [reply, setReply] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
-  const [trendTopics, setTrendTopics] = useState<QuipTrendTopic[]>([]);
-  const [topicCountry, setTopicCountry] = useState<'ALL' | 'US' | 'UK'>('ALL');
-  const [topicsStatus, setTopicsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const replyLimit = 600;
-  const visibleTopics = trendTopics
-    .filter((topic) => topicCountry === 'ALL' || topic.countryCode === topicCountry);
-  const displayedTopics = topicCountry === 'ALL'
-    ? (['US', 'UK'] as const)
-      .flatMap((country) => visibleTopics.filter((topic) => topic.countryCode === country).slice(0, 4))
-      .sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt))
-    : visibleTopics.slice(0, 8);
-  const selectedTopic = trendTopics.find((topic) => topic.id === selectedTrendTopicId) ?? null;
+
+  const allSelected = books.length > 0 && selectedBookIds.length === books.length;
+  const canGenerate = selectedBookIds.length > 0 && Boolean(trendText.trim()) && !isGenerating && !isExtracting;
 
   useEffect(() => {
     if (!visible) return;
-    let active = true;
+    setTopicSource('write');
     setTrendText('');
-    setSelectedTrendTopicId(null);
+    setSelectedTrendTopic(null);
+    setIsPickerVisible(false);
+    setIsExtracting(false);
+    setHasExtractedText(false);
+    setSelectedBookIds(books.map((item) => item.id));
     setReply('');
     setErrorMessage('');
     setIsCopied(false);
-    setTopicCountry('ALL');
-    setTopicsStatus('loading');
-    void loadQuipTrendTopics()
-      .then((topics) => {
-        if (!active) return;
-        setTrendTopics(topics);
-        setTopicsStatus('ready');
-      })
-      .catch(() => {
-        if (!active) return;
-        setTrendTopics([]);
-        setTopicsStatus('error');
-      });
-    return () => { active = false; };
+    // Reset per open; the Quip-enabled shelf is fixed while the sheet shows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
+
+  const resetDraft = () => {
+    setReply('');
+    setErrorMessage('');
+    setIsCopied(false);
+  };
+
+  const switchTopicSource = (source: TopicSource) => {
+    if (source === topicSource) return;
+    setTopicSource(source);
+    setTrendText('');
+    setSelectedTrendTopic(null);
+    setHasExtractedText(false);
+    resetDraft();
+  };
 
   const updateTrendText = (text: string) => {
     setTrendText(text);
-    if (selectedTopic && text !== selectedTopic.topic) setSelectedTrendTopicId(null);
-    setReply('');
-    setIsCopied(false);
+    resetDraft();
   };
 
   const selectTrendTopic = (topic: QuipTrendTopic) => {
+    setSelectedTrendTopic(topic);
     setTrendText(topic.topic);
-    setSelectedTrendTopicId(topic.id);
-    setReply('');
-    setIsCopied(false);
+    setIsPickerVisible(false);
+    resetDraft();
+  };
+
+  const toggleAllBooks = () => {
+    setSelectedBookIds(allSelected ? [] : books.map((item) => item.id));
+    resetDraft();
+  };
+
+  const toggleBook = (bookId: string) => {
+    setSelectedBookIds((current) =>
+      current.includes(bookId) ? current.filter((id) => id !== bookId) : [...current, bookId],
+    );
+    resetDraft();
+  };
+
+  const pickScreenshot = async () => {
+    if (isExtracting) return;
+    setErrorMessage('');
+    let asset: ImagePicker.ImagePickerAsset | null = null;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], base64: true, quality: 0.8 });
+      if (result.canceled || !result.assets?.[0]) return;
+      asset = result.assets[0];
+    } catch {
+      setErrorMessage('Could not open the image library on this device.');
+      return;
+    }
+    let base64 = asset.base64 ?? '';
+    let mimeType = asset.mimeType ?? '';
+    if (!base64 && asset.uri.startsWith('data:')) {
+      const match = asset.uri.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        mimeType = mimeType || match[1];
+        base64 = match[2];
+      }
+    }
+    if (!SCREENSHOT_MIME_TYPES.has(mimeType)) mimeType = 'image/jpeg';
+    if (!base64) {
+      setErrorMessage('Could not read that image. Try a different screenshot.');
+      return;
+    }
+    if (base64.length > MAX_SCREENSHOT_BASE64_LENGTH) {
+      setErrorMessage('Choose a screenshot under 4 MB.');
+      return;
+    }
+    setIsExtracting(true);
+    try {
+      const text = await extractScreenshotTopic(base64, mimeType);
+      setTrendText(text);
+      setHasExtractedText(true);
+      resetDraft();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not read the screenshot.');
+    } finally {
+      setIsExtracting(false);
+    }
   };
 
   const generate = async () => {
-    if (books.length === 0 || !trendText.trim() || isGenerating) return;
+    if (!canGenerate) return;
     setIsGenerating(true);
     setErrorMessage('');
     setIsCopied(false);
     try {
-      setReply(await onGenerate(trendText.trim(), selectedTrendTopicId));
+      const trendTopicId = topicSource === 'trend' && selectedTrendTopic ? selectedTrendTopic.id : null;
+      setReply(await onGenerate(trendText.trim(), trendTopicId, selectedBookIds));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Could not draft a trend reply.');
     } finally {
@@ -110,70 +182,144 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
             <Text style={styles.eyebrow}>FROM YOUR READ SHELF</Text>
             <Text style={styles.title}>Reply</Text>
             <Text style={styles.description}>
-              Your reply will draw on all {books.length} Quip-enabled Read {books.length === 1 ? 'book' : 'books'}.
+              Your reply will draw on {selectedBookIds.length} of {books.length} Quip-enabled Read {books.length === 1 ? 'book' : 'books'}.
             </Text>
 
-            <Text style={styles.fieldLabel}>TRENDING TOPICS</Text>
-            <Text style={styles.fieldHint}>Choose a topic to add trending context to your reply.</Text>
-            <View accessibilityRole="tablist" style={styles.countryFilter}>
-              {(['ALL', 'US', 'UK'] as const).map((country) => (
+            <Text style={styles.fieldLabel}>TOPIC</Text>
+            <Text style={styles.fieldHint}>Write the topic, upload a screenshot of a post, or pick a trending topic.</Text>
+            <View accessibilityRole="tablist" style={styles.sourceFilter}>
+              {TOPIC_SOURCES.map(({ id, label, icon: Icon }) => (
                 <Pressable
-                  key={country}
+                  key={id}
                   accessibilityRole="tab"
-                  accessibilityState={{ selected: topicCountry === country }}
-                  onPress={() => setTopicCountry(country)}
-                  style={[styles.countryTab, topicCountry === country && styles.countryTabSelected]}
+                  accessibilityState={{ selected: topicSource === id }}
+                  onPress={() => switchTopicSource(id)}
+                  style={[styles.sourceTab, topicSource === id && styles.sourceTabSelected]}
                 >
-                  <Text style={[styles.countryTabLabel, topicCountry === country && styles.countryTabLabelSelected]}>
-                    {country === 'ALL' ? 'All' : country}
-                  </Text>
+                  <Icon color={topicSource === id ? '#fffaf6' : '#526259'} size={12} strokeWidth={2} />
+                  <Text style={[styles.sourceTabLabel, topicSource === id && styles.sourceTabLabelSelected]}>{label}</Text>
                 </Pressable>
               ))}
             </View>
-            {topicsStatus === 'loading' ? (
-              <Text style={styles.fieldHint}>Loading recent topics…</Text>
-            ) : topicsStatus === 'error' ? (
-              <Text style={styles.fieldHint}>Trend suggestions are unavailable. You can still enter a topic below.</Text>
-            ) : displayedTopics.length > 0 ? (
-              <View style={styles.topicList}>
-                {displayedTopics.map((topic) => (
-                  <Pressable
-                    key={topic.id}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: selectedTrendTopicId === topic.id }}
-                    accessibilityLabel={`Use ${topic.countryCode} trend: ${topic.topic}`}
-                    onPress={() => selectTrendTopic(topic)}
-                    style={({ pressed }) => [styles.topicCard, selectedTrendTopicId === topic.id && styles.topicCardSelected, pressed && styles.pressed]}
-                  >
-                    <View style={styles.topicRow}>
-                      <Text style={styles.topicText}>{topic.topic}</Text>
-                      <View style={styles.topicBadges}>
-                        {topic.approxTraffic ? <Text style={styles.topicTraffic}>≈ {topic.approxTraffic}</Text> : null}
-                        <Text style={styles.topicCountry}>{topic.countryCode}</Text>
-                      </View>
-                    </View>
-                    {topic.summary ? <Text style={styles.topicSummary}>{topic.summary}</Text> : null}
-                  </Pressable>
-                ))}
-                <Text style={styles.topicAttribution}>Google Trends · recent searches</Text>
-              </View>
+
+            {topicSource === 'write' ? (
+              <>
+                <TextInput
+                  accessibilityLabel="Paste a trend post or topic"
+                  autoCorrect
+                  maxLength={2000}
+                  multiline
+                  onChangeText={updateTrendText}
+                  placeholder="Paste the post or describe the topic…"
+                  style={styles.trendInput}
+                  textAlignVertical="top"
+                  value={trendText}
+                />
+                <Text style={styles.characterCount}>{trendText.length} / 2000</Text>
+              </>
+            ) : topicSource === 'screenshot' ? (
+              <>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isExtracting}
+                  onPress={() => void pickScreenshot()}
+                  style={({ pressed }) => [styles.uploadButton, isExtracting && styles.disabled, pressed && styles.pressed]}
+                >
+                  <Camera color="#34755e" size={14} />
+                  <Text style={styles.uploadLabel}>
+                    {isExtracting ? 'READING SCREENSHOT…' : hasExtractedText ? 'REPLACE SCREENSHOT' : 'UPLOAD SCREENSHOT'}
+                  </Text>
+                </Pressable>
+                {hasExtractedText ? (
+                  <>
+                    <Text style={styles.fieldHint}>Review and edit the text we read from your screenshot.</Text>
+                    <TextInput
+                      accessibilityLabel="Extracted screenshot text"
+                      autoCorrect
+                      maxLength={2000}
+                      multiline
+                      onChangeText={updateTrendText}
+                      style={styles.trendInput}
+                      textAlignVertical="top"
+                      value={trendText}
+                    />
+                    <Text style={styles.characterCount}>{trendText.length} / 2000</Text>
+                  </>
+                ) : (
+                  <Text style={styles.fieldHint}>PNG, JPEG, or WebP up to 4 MB. We extract the post text for you to review.</Text>
+                )}
+              </>
             ) : (
-              <Text style={styles.fieldHint}>No recent topics for this filter. You can still enter a topic below.</Text>
+              <>
+                {selectedTrendTopic ? (
+                  <View style={styles.trendChip}>
+                    <View style={styles.trendChipCopy}>
+                      <View style={styles.trendChipRow}>
+                        <Text style={styles.trendChipTopic}>{selectedTrendTopic.topic}</Text>
+                        <Text style={styles.trendChipCountry}>{selectedTrendTopic.countryCode}</Text>
+                      </View>
+                      {selectedTrendTopic.summary ? <Text style={styles.trendChipSummary}>{selectedTrendTopic.summary}</Text> : null}
+                    </View>
+                    <Pressable accessibilityRole="button" onPress={() => setIsPickerVisible(true)} style={styles.trendChangeButton}>
+                      <Text style={styles.trendChangeLabel}>CHANGE</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => setIsPickerVisible(true)}
+                      style={({ pressed }) => [styles.uploadButton, pressed && styles.pressed]}
+                    >
+                      <TrendingUp color="#34755e" size={14} />
+                      <Text style={styles.uploadLabel}>CHOOSE A TREND</Text>
+                    </Pressable>
+                    <Text style={styles.fieldHint}>Pick from recent Google Trends topics. Related headlines are added to your reply context.</Text>
+                  </>
+                )}
+              </>
             )}
 
-            <Text style={styles.fieldLabel}>POST OR TOPIC</Text>
-            <TextInput
-              accessibilityLabel="Paste a trend post or topic"
-              autoCorrect
-              maxLength={2000}
-              multiline
-              onChangeText={updateTrendText}
-              placeholder="Paste the post or describe the topic…"
-              style={styles.trendInput}
-              textAlignVertical="top"
-              value={trendText}
-            />
-            <Text style={styles.characterCount}>{trendText.length} / 2000</Text>
+            <View style={styles.booksHeader}>
+              <Text style={[styles.fieldLabel, styles.booksHeaderLabel]}>BOOKS IN THIS REPLY</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ checked: allSelected }}
+                onPress={toggleAllBooks}
+                style={({ pressed }) => [styles.selectAllButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.selectAllLabel}>{allSelected ? 'DESELECT ALL' : 'SELECT ALL'}</Text>
+                {allSelected
+                  ? <CheckSquare color="#34755e" size={15} strokeWidth={2} />
+                  : <Square color="#8d998f" size={15} strokeWidth={2} />}
+              </Pressable>
+            </View>
+            <View style={styles.bookList}>
+              {books.map((item) => {
+                const checked = selectedBookIds.includes(item.id);
+                return (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked }}
+                    accessibilityLabel={`Include ${item.title} in this reply`}
+                    onPress={() => toggleBook(item.id)}
+                    style={({ pressed }) => [styles.bookRow, pressed && styles.pressed]}
+                  >
+                    <View style={styles.bookRowCopy}>
+                      <Text numberOfLines={1} style={styles.bookRowTitle}>{item.title}</Text>
+                      <Text numberOfLines={1} style={styles.bookRowAuthor}>{item.author}</Text>
+                    </View>
+                    {checked
+                      ? <CheckSquare color="#34755e" size={16} strokeWidth={2} />
+                      : <Square color="#8d998f" size={16} strokeWidth={2} />}
+                  </Pressable>
+                );
+              })}
+            </View>
+            {selectedBookIds.length === 0 ? (
+              <Text style={styles.fieldHint}>Select at least one book to draft a reply.</Text>
+            ) : null}
 
             {reply ? (
               <>
@@ -197,9 +343,9 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
             <View style={styles.actions}>
               <Pressable
                 accessibilityRole="button"
-                disabled={books.length === 0 || !trendText.trim() || isGenerating}
+                disabled={!canGenerate}
                 onPress={() => void generate()}
-                style={({ pressed }) => [styles.generateButton, (books.length === 0 || !trendText.trim() || isGenerating) && styles.disabled, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.generateButton, !canGenerate && styles.disabled, pressed && styles.pressed]}
               >
                 <Text style={styles.generateLabel}>{isGenerating ? 'DRAFTING…' : 'REPLY'}</Text>
               </Pressable>
@@ -213,6 +359,12 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
           </ScrollView>
         </View>
       </View>
+
+      <TrendPickerSheet
+        visible={isPickerVisible}
+        onClose={() => setIsPickerVisible(false)}
+        onSelect={selectTrendTopic}
+      />
     </Modal>
   );
 }
@@ -228,37 +380,33 @@ const styles = StyleSheet.create({
   eyebrow: { color: '#6f8175', fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
   title: { color: '#29382f', fontSize: 25, lineHeight: 31, fontWeight: '600', marginTop: 6 },
   description: { color: '#68766d', fontSize: 13, lineHeight: 19, marginTop: 7 },
-  countryFilter: { flexDirection: 'row', alignSelf: 'flex-start', gap: 3, padding: 3, marginTop: 7, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, backgroundColor: '#f0f3ee' },
-  countryTab: { minWidth: 48, minHeight: 28, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, borderRadius: 3 },
-  countryTabSelected: { backgroundColor: '#34755e' },
-  countryTabLabel: { color: '#526259', fontSize: 9, fontWeight: '700' },
-  countryTabLabelSelected: { color: '#fffaf6' },
-  topicList: { marginTop: 8, borderTopWidth: 1, borderTopColor: '#e5e9e3' },
-  topicCard: { minHeight: 38, justifyContent: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#e5e9e3' },
-  topicCardSelected: { backgroundColor: '#f4f7f2' },
-  topicRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  topicText: { flex: 1, color: '#35433b', fontSize: 11, lineHeight: 16, fontWeight: '600' },
-  topicBadges: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  topicTraffic: { color: '#89958c', fontSize: 8, lineHeight: 12 },
-  topicCountry: { minWidth: 27, color: '#78887d', fontSize: 8, fontWeight: '800', textAlign: 'center' },
-  topicSummary: { color: '#68766d', fontSize: 10, lineHeight: 14, marginTop: 3 },
-  topicAttribution: { color: '#879188', fontSize: 8, marginTop: 5 },
-  bookSearch: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, paddingHorizontal: 11, marginTop: 17, backgroundColor: '#fff' },
-  bookSearchInput: { flex: 1, minWidth: 0, height: 40, color: '#29382f', fontSize: 12 },
-  bookResults: { borderWidth: 1, borderColor: '#d8e0d7', borderTopWidth: 0, maxHeight: 190, overflow: 'hidden' },
-  bookResult: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 11, borderTopWidth: 1, borderTopColor: '#e8ece6' },
-  bookResultText: { flex: 1, minWidth: 0 },
-  bookSwatch: { width: 4, height: 30, borderRadius: 2 },
-  selectedBookRow: { minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 9, borderBottomWidth: 1, borderBottomColor: '#dfe4dc', marginTop: 12 },
-  selectedBookText: { flex: 1, minWidth: 0 },
-  selectedBookTitle: { color: '#29382f', fontSize: 12, fontWeight: '600' },
-  selectedBookAuthor: { color: '#78857d', fontSize: 10, marginTop: 3 },
-  changeBookButton: { minHeight: 34, justifyContent: 'center', paddingHorizontal: 9 },
-  changeBookLabel: { color: '#34755e', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
-  noBooks: { color: '#78857d', fontSize: 11, lineHeight: 16, marginTop: 10 },
+  sourceFilter: { flexDirection: 'row', alignSelf: 'flex-start', gap: 3, padding: 3, marginTop: 8, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, backgroundColor: '#f0f3ee' },
+  sourceTab: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 10, borderRadius: 3 },
+  sourceTabSelected: { backgroundColor: '#34755e' },
+  sourceTabLabel: { color: '#526259', fontSize: 9, fontWeight: '700' },
+  sourceTabLabelSelected: { color: '#fffaf6' },
+  trendInput: { minHeight: 84, maxHeight: 150, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, padding: 10, marginTop: 9, color: '#29382f', backgroundColor: '#fff', fontSize: 12, lineHeight: 18 },
+  uploadButton: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, alignSelf: 'flex-start', paddingHorizontal: 12, borderRadius: 4, marginTop: 9, backgroundColor: '#e5f1e8' },
+  uploadLabel: { color: '#2f725b', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
+  trendChip: { flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#cfe0d4', borderRadius: 4, backgroundColor: '#f4f7f2', padding: 10, marginTop: 9 },
+  trendChipCopy: { flex: 1, minWidth: 0 },
+  trendChipRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  trendChipTopic: { flex: 1, color: '#29382f', fontSize: 12, fontWeight: '600' },
+  trendChipCountry: { color: '#78887d', fontSize: 8, fontWeight: '800' },
+  trendChipSummary: { color: '#68766d', fontSize: 10, lineHeight: 14, marginTop: 3 },
+  trendChangeButton: { minHeight: 32, justifyContent: 'center', paddingHorizontal: 8 },
+  trendChangeLabel: { color: '#34755e', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
+  booksHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 },
+  booksHeaderLabel: { marginTop: 0 },
+  selectAllButton: { minHeight: 30, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 },
+  selectAllLabel: { color: '#34755e', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
+  bookList: { borderTopWidth: 1, borderTopColor: '#e5e9e3', marginTop: 6 },
+  bookRow: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#e5e9e3' },
+  bookRowCopy: { flex: 1, minWidth: 0 },
+  bookRowTitle: { color: '#35433b', fontSize: 11, fontWeight: '600' },
+  bookRowAuthor: { color: '#78857d', fontSize: 9, marginTop: 2 },
   fieldHint: { color: '#879188', fontSize: 10, marginTop: 7 },
   fieldLabel: { color: '#78887d', fontSize: 8, fontWeight: '700', letterSpacing: 0.9, marginTop: 16 },
-  trendInput: { minHeight: 84, maxHeight: 150, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, padding: 10, marginTop: 7, color: '#29382f', backgroundColor: '#fff', fontSize: 12, lineHeight: 18 },
   replyInput: { minHeight: 100, maxHeight: 220, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, padding: 10, marginTop: 7, color: '#29382f', backgroundColor: '#fff', fontSize: 13, lineHeight: 19 },
   characterCount: { color: '#879188', fontSize: 9, textAlign: 'right', marginTop: 4 },
   error: { color: '#a9443d', fontSize: 11, lineHeight: 16, marginTop: 8 },
