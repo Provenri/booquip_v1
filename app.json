@@ -6,7 +6,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "backgroundColor": "#F6F8F8",
+    "backgroundColor": "#F7F5EF",
     "ios": {
       "bundleIdentifier": "app.booquip.mobile",
       "buildNumber": "1",

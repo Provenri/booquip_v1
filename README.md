@@ -54,12 +54,16 @@ BooQuip syncs user shelves, swipe states, and *Humanity Quotient* metrics seamle
 * **Brand Name:** BooQuip
 * **Primary Mark:** Mint speech-bubble open book icon (`#3ED19A`) paired with deep slate charcoal (`#1E2E30`) and crisp off-white (`#F6F8F8`).
 
+### Mobile UI foundations
+
+The Expo SDK 54 app uses Reanimated and Gesture Handler for native swipe and press feedback, FlashList for the growing Quip and shelf lists, and shared color, spacing, radius, and typography tokens from `constants/theme.ts`. Safe-area context is applied at the app root and to modal sheets. These native dependencies require a development or preview build; rebuild the app after changing them rather than relying on an older installed binary.
+
 ---
 
 ## 🛠️ Technical Stack (Windows + Cloud Workflow)
 
 * **Universal Frontend (iOS, Android, & Web):** React Native + Expo + Expo Router (TypeScript)
-* **Live Mobile Testing:** Expo Go (iOS/Android via Wi-Fi Tunnel)
+* **Live Mobile Testing:** Expo development or preview builds (iOS/Android); FlashList 2 requires a native build rather than Expo Go
 * **Web Hosting & CDN:** Vercel (Free Tier — auto-deploys static Expo Web builds from GitHub)
 * **Mobile Store Compiles:** Expo Application Services (EAS Build — compiles iOS `.ipa` and Android `.aab` without a Mac)
 * **Backend, Auth & Database:** Supabase (PostgreSQL, Auth, Edge Functions, Storage)
@@ -90,7 +94,7 @@ BooQuip syncs user shelves, swipe states, and *Humanity Quotient* metrics seamle
 * A free [Supabase](https://supabase.com) account (with Anonymous Sign-Ins, Apple, Google, and Email enabled under Authentication)
 * An [OpenAI API](https://openai.com) pay-as-you-go key
 * A free [TMDb API](https://themoviedb.org) key (for movie/TV adaptation metadata)
-* **Expo Go** installed on your physical iPhone or Android device
+* An EAS development or preview build installed on your physical iPhone or Android device
 
 ### 2. Environment Setup
 Create a `.env` file in the root directory and populate your keys:
@@ -109,7 +113,7 @@ Run the following commands inside your Codespaces terminal:
 # Install universal frontend packages
 npm install
 
-# Option A: Start Mobile Dev Server with tunnel mode (Codespaces -> Physical Phone via Expo Go)
+# Option A: Start Mobile Dev Server with tunnel mode (Codespaces -> Physical Phone via development build)
 npx expo start --tunnel
 
 # Option B: Start Web Dev Server (Preview in Codespaces browser port 8081)

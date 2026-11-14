@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list';
 import {
-  Animated,
   Image,
-  PanResponder,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,6 +12,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { Extrapolation, interpolate, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import {
   ArrowLeft,
   ArrowRight,
@@ -35,12 +36,14 @@ import {
 import { BOOKS, PILLARS, type Book, type Pillar } from '@/lib/books';
 import { linkCurrentUserEmail, resendCurrentUserEmailChange, signInWithEmail } from '@/lib/auth';
 import AccountSheet from '@/components/AccountSheet';
+import Pressable from '@/components/MotionPressable';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { deleteUserSwipe, getOrCreateAnonymousUser, loadUserSwipes, saveQuipEnabled, saveUserSwipe } from '@/lib/swipes';
 import { getBookOnRamp } from '@/lib/onramp';
 import TrendReplySheet from '@/components/TrendReplySheet';
 import { generateTrendReply } from '@/lib/trendInterceptor';
 import { EMPTY_CHART_DATA, loadCatalog, loadChartData, loadPillars, type ChartData } from '@/lib/catalog';
+import { colors, radii, spacing, type } from '@/constants/theme';
 
 type Screen = 'discover' | 'tbr' | 'read' | 'snoozed';
 type Section = 'home' | 'book' | 'quip';
@@ -48,9 +51,9 @@ type Action = 'tbr' | 'read' | 'freeze';
 type SyncStatus = 'local' | 'loading' | 'connected' | 'error';
 
 const ACTIONS: { id: Action; label: string; hint: string; color: string; icon: typeof ArrowRight }[] = [
-  { id: 'tbr', label: 'Save to TBR', hint: 'Right', color: '#337e69', icon: Bookmark },
-  { id: 'read', label: 'Already read', hint: 'Up', color: '#476da1', icon: Check },
-  { id: 'freeze', label: 'Snooze 90 days', hint: 'Left', color: '#8a6e46', icon: Clock3 },
+  { id: 'tbr', label: 'Save to TBR', hint: 'Right', color: colors.saveAction, icon: Bookmark },
+  { id: 'read', label: 'Already read', hint: 'Up', color: colors.readAction, icon: Check },
+  { id: 'freeze', label: 'Snooze 90 days', hint: 'Left', color: colors.snoozeAction, icon: Clock3 },
 ];
 
 function NavItem({
@@ -78,7 +81,7 @@ function NavItem({
       onPress={onPress}
       style={[styles.navItem, compact && styles.navItemCompact, disabled && styles.navItemDisabled, active && styles.navItemActive]}
     >
-      <Icon color={active ? '#243b35' : '#9da9a1'} size={18} strokeWidth={1.8} />
+      <Icon color={active ? colors.forestSelected : colors.quiet} size={18} strokeWidth={1.8} />
       <Text style={[styles.navLabel, compact && styles.navLabelCompact, active && styles.navLabelActive]}>{label}</Text>
       {count !== undefined && <Text style={[styles.navCount, active && styles.navLabelActive]}>{count}</Text>}
     </Pressable>
@@ -103,7 +106,7 @@ function BottomTab({
       onPress={onPress}
       style={styles.bottomTab}
     >
-      <Icon color={active ? '#245b49' : '#87938b'} size={21} strokeWidth={active ? 2.2 : 1.8} />
+      <Icon color={active ? colors.brandDeep : colors.muted} size={21} strokeWidth={active ? 2.2 : 1.8} />
       <Text style={[styles.bottomTabLabel, active && styles.bottomTabLabelActive]}>{label}</Text>
     </Pressable>
   );
@@ -147,9 +150,17 @@ export default function DiscoverScreen() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(isSupabaseConfigured ? 'loading' : 'local');
   const [syncMessage, setSyncMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const drag = useRef(new Animated.ValueXY()).current;
+  const dragX = useSharedValue(0);
+  const dragY = useSharedValue(0);
   const actionRef = useRef<(action: Action) => void>(() => undefined);
   const onRampRequestId = useRef(0);
+  const bookCardStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: dragX.get() },
+      { translateY: dragY.get() },
+      { rotate: `${interpolate(dragX.get(), [-300, 0, 300], [-8, 0, 8], Extrapolation.CLAMP)}deg` },
+    ],
+  }));
 
   const completedIds = new Set([...tbrIds, ...readIds]);
   const availableBooks = books.filter(
@@ -372,40 +383,41 @@ export default function DiscoverScreen() {
       .finally(() => setIsSaving(false));
   };
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_event, gesture) =>
-        Math.abs(gesture.dx) > 10 || Math.abs(gesture.dy) > 10,
-      onPanResponderMove: (_event, gesture) => drag.setValue({ x: gesture.dx, y: gesture.dy }),
-      onPanResponderRelease: (_event, gesture) => {
-        const horizontal = Math.abs(gesture.dx) > Math.abs(gesture.dy);
-        const distance = horizontal ? gesture.dx : gesture.dy;
-        if (Math.abs(distance) < 70) {
-          Animated.spring(drag, { toValue: { x: 0, y: 0 }, useNativeDriver: false, friction: 7 }).start();
-          return;
-        }
-        if (!horizontal && gesture.dy > 0) {
-          Animated.spring(drag, { toValue: { x: 0, y: 0 }, useNativeDriver: false, friction: 7 }).start();
-          return;
-        }
-        const action: Action = horizontal
-          ? gesture.dx > 0 ? 'tbr' : 'freeze'
-          : 'read';
-        const destination = {
-          x: horizontal ? Math.sign(gesture.dx) * 460 : gesture.dx,
-          y: horizontal ? gesture.dy : -460,
-        };
-        Animated.timing(drag, { toValue: destination, duration: 150, useNativeDriver: false }).start(({ finished }) => {
-          if (!finished) return;
-          actionRef.current(action);
-          drag.setValue({ x: 0, y: 0 });
-        });
-      },
-      onPanResponderTerminate: () => {
-        Animated.spring(drag, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
-      },
-    }),
-  ).current;
+  const resetCardPosition = (velocityX = 0, velocityY = 0) => {
+    'worklet';
+    dragX.set(withSpring(0, { duration: 400, dampingRatio: 0.8, velocity: velocityX }));
+    dragY.set(withSpring(0, { duration: 400, dampingRatio: 0.8, velocity: velocityY }));
+  };
+  const cardGesture = Gesture.Pan()
+    .activeOffsetX([-10, 10])
+    .activeOffsetY([-10, 10])
+    .onUpdate((event) => {
+      dragX.set(event.translationX);
+      dragY.set(event.translationY);
+    })
+    .onEnd((event) => {
+      const horizontal = Math.abs(event.translationX) > Math.abs(event.translationY);
+      const distance = horizontal ? event.translationX : event.translationY;
+      if (Math.abs(distance) < 70 || (!horizontal && event.translationY > 0)) {
+        resetCardPosition(event.velocityX, event.velocityY);
+        return;
+      }
+
+      const action: Action = horizontal
+        ? event.translationX > 0 ? 'tbr' : 'freeze'
+        : 'read';
+      const destinationX = horizontal ? Math.sign(event.translationX) * 460 : event.translationX;
+      const destinationY = horizontal ? event.translationY : -460;
+      dragY.set(withSpring(destinationY, { duration: 300, dampingRatio: 0.8, velocity: event.velocityY }));
+      dragX.set(withSpring(destinationX, { duration: 300, dampingRatio: 0.8, velocity: event.velocityX }, (finished) => {
+        if (finished) scheduleOnRN(handleAction, action);
+        dragX.set(0);
+        dragY.set(0);
+      }));
+    })
+    .onFinalize((_event, success) => {
+      if (!success) resetCardPosition();
+    });
 
   const revealBook = (chosenBook: Book) => {
     setSection('book');
@@ -593,6 +605,172 @@ export default function DiscoverScreen() {
       : syncStatus === 'error'
         ? `Couldn’t sync: ${syncMessage}`
         : 'Preview mode · changes stay on this device';
+  const pageHeading = (
+    <View style={styles.pageHeading}>
+      <View>
+        <Text style={styles.eyebrow}>{section === 'home' ? 'YOUR LIBRARY' : section === 'book' ? 'BOOK' : 'QUIP'}</Text>
+        <Text style={styles.pageTitle}>{section === 'home' ? 'Your Library' : section === 'book' ? screenTitle : 'Your Quip library'}</Text>
+      </View>
+      {isWide && <Text style={styles.issueMark}>FIELD NOTES <Text style={styles.issueDot}>·</Text> 2026</Text>}
+    </View>
+  );
+  const syncStatusIndicator = (
+    <View style={styles.syncStatusRow}>
+      <View style={[styles.syncDot, syncStatus === 'connected' && styles.syncDotConnected, syncStatus === 'error' && styles.syncDotError]} />
+      <Text numberOfLines={1} style={styles.syncStatusText}>{syncLabel}</Text>
+    </View>
+  );
+  const pageFooter = isWide ? (
+    <View style={styles.pageFooter}>
+      <Text style={styles.footerCopy}>A GOOD BOOK IS A CHANGE OF PERSPECTIVE.</Text>
+      <Text style={styles.footerCopy}>BOOQUIP <Text style={styles.issueDot}>·</Text> FIELD NOTES</Text>
+    </View>
+  ) : null;
+  const shelfListHeader = (
+    <View>
+      {pageHeading}
+      {syncStatusIndicator}
+      <View style={styles.pillarHeader}>
+        <Text style={styles.sectionLabel}>{screen === 'tbr' ? 'SAVED FOR LATER' : screen === 'read' ? 'MARKED AS READ' : 'SNOOZED FOR LATER'}</Text>
+        <Text style={styles.stackCount}>{String(shelfBooks.length).padStart(2, '0')} BOOKS</Text>
+      </View>
+    </View>
+  );
+  const quipListHeader = (
+    <View>
+      {pageHeading}
+      {syncStatusIndicator}
+      <View style={styles.quipSection}>
+        <View style={styles.quipHeader}>
+          <View style={styles.quipIntro}>
+            <Text style={styles.quipCount}>{quipBooks.length} {quipBooks.length === 1 ? 'BOOK' : 'BOOKS'} IN QUIP</Text>
+            <Text style={styles.quipDescription}>Read books you switch on are collected here.</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            disabled={quipBooks.length === 0 || syncStatus === 'loading'}
+            onPress={() => setIsTrendReplyVisible(true)}
+            style={({ pressed }) => [styles.quipButton, (quipBooks.length === 0 || syncStatus === 'loading') && styles.actionDisabled, pressed && styles.actionPressed]}
+          >
+            <MessageCircle color={colors.brandContrast} size={16} />
+            <Text style={styles.quipButtonText}>REPLY TO TREND</Text>
+          </Pressable>
+        </View>
+        {quipBooks.length > 0 && (
+          <View style={styles.quipShelfHeading}>
+            <Text style={styles.sectionLabel}>SWITCHED ON FOR QUIP</Text>
+            <Text style={styles.stackCount}>{quipBooks.length} {quipBooks.length === 1 ? 'BOOK' : 'BOOKS'}</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+  const renderQuipBook = ({ item }: ListRenderItemInfo<Book>) => (
+    <View style={styles.quipBookRow}>
+      <View style={[styles.quipBookCover, { backgroundColor: item.color }]}>
+        <BookOpen color={colors.white} size={18} strokeWidth={1.6} />
+      </View>
+      <View style={styles.quipBookCopy}>
+        <Text style={styles.quipBookTitle}>{item.title}</Text>
+        <Text style={styles.quipBookAuthor}>{item.author}{item.year ? ` · ${item.year}` : ''}</Text>
+      </View>
+      <Text style={styles.quipEnabledLabel}>QUIP ON</Text>
+    </View>
+  );
+  const renderShelfBook = ({ item, index }: ListRenderItemInfo<Book>) => (
+    <View style={[styles.shelfRow, screen === 'snoozed' ? styles.snoozedShelfRow : styles.returnShelfRow]}>
+      <Text style={styles.shelfIndex}>{String(index + 1).padStart(2, '0')}</Text>
+      <View style={[styles.shelfSwatch, { backgroundColor: item.color }]} />
+      <View style={styles.shelfText}>
+        <Text style={styles.shelfTitle}>{item.title}</Text>
+        <Text style={styles.shelfAuthor}>{item.author}{item.year ? ` · ${item.year}` : ''}</Text>
+      </View>
+      {screen === 'snoozed' ? (
+        <Text style={[styles.shelfPillar, styles.shelfReturn]}>
+          {`RETURNS ${new Date(frozenUntil[item.id]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).toUpperCase()}`}
+        </Text>
+      ) : isWide ? (
+        <Text style={styles.shelfPillar}>{pillars.find((pillar) => pillar.id === item.pillar)?.label.toUpperCase()}</Text>
+      ) : null}
+      {screen === 'snoozed' && item.isActive === false && <Text style={styles.archivedLabel}>ARCHIVED</Text>}
+      {screen === 'snoozed' && item.isActive !== false && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Wake ${item.title} and return it to discovery now`}
+          disabled={isSaving}
+          onPress={() => handleWakeBook(item.id)}
+          style={({ pressed }) => [styles.wakeButton, isSaving && styles.actionDisabled, pressed && styles.actionPressed]}
+        >
+          <RotateCcw color={colors.gold} size={15} />
+          <Text style={styles.wakeButtonText}>WAKE</Text>
+        </Pressable>
+      )}
+      {screen === 'read' && (
+        <Pressable
+          accessibilityRole="switch"
+          accessibilityState={{
+            checked: quipBookIds.includes(item.id),
+            disabled: isSaving || syncStatus === 'loading',
+          }}
+          accessibilityLabel={`${quipBookIds.includes(item.id) ? 'Quip on for' : 'Quip off for'} ${item.title}`}
+          disabled={isSaving || syncStatus === 'loading'}
+          onPress={() => handleQuipToggle(item.id)}
+          style={({ pressed }) => [
+            styles.quipToggle,
+            quipBookIds.includes(item.id) && styles.quipToggleEnabled,
+            (isSaving || syncStatus === 'loading') && styles.actionDisabled,
+            pressed && styles.actionPressed,
+          ]}
+        >
+          <MessageCircle color={quipBookIds.includes(item.id) ? colors.brand : colors.secondary} size={14} />
+          <Text style={[styles.quipToggleLabel, quipBookIds.includes(item.id) && styles.quipToggleLabelEnabled]}>
+            {quipBookIds.includes(item.id) ? 'QUIP ON' : 'QUIP OFF'}
+          </Text>
+        </Pressable>
+      )}
+      {screen !== 'snoozed' && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={item.isActive === false ? `Remove archived ${item.title} from this shelf` : `Remove ${item.title} from this shelf and return it to discovery`}
+          disabled={isSaving || syncStatus === 'loading'}
+          onPress={() => handleRemoveFromShelf(item.id)}
+          style={({ pressed }) => [styles.returnBookButton, isSaving && styles.actionDisabled, pressed && styles.actionPressed]}
+        >
+          <RotateCcw color={colors.brand} size={14} />
+          <Text style={styles.returnBookButtonText}>{item.isActive === false ? 'REMOVE' : 'RETURN'}</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+  const emptyShelfState = (
+    <View style={styles.emptyState}>
+      <View style={styles.emptyIcon}><BookOpen color={colors.brandMuted} size={24} /></View>
+      <Text style={styles.emptyTitle}>{screen === 'snoozed' ? 'Nothing on snooze.' : 'A shelf with room to grow.'}</Text>
+      <Text style={styles.emptyCopy}>{screen === 'snoozed' ? 'Books you snooze will return to discovery after their 90-day break.' : 'Books you sort in discovery will appear here.'}</Text>
+      <Pressable onPress={() => setScreen('discover')} style={styles.resetButton}>
+        <Sparkles color={colors.brandDeep} size={16} />
+        <Text style={styles.resetButtonText}>Discover books</Text>
+      </Pressable>
+    </View>
+  );
+  const emptyQuipState = (
+    <View style={styles.quipEmptyState}>
+      <View style={styles.emptyIcon}><BookOpen color={colors.brandMuted} size={22} /></View>
+      <View style={styles.quipEmptyCopy}>
+        <Text style={styles.emptyTitle}>{readBooks.length ? 'Quip is off for all Read books.' : 'Your Read shelf is empty.'}</Text>
+        <Text style={styles.emptyCopy}>{readBooks.length ? 'Turn Quip on for a book from your Read shelf to add it here.' : 'Mark a book as read, then switch Quip on to add it here.'}</Text>
+      </View>
+      <Pressable accessibilityRole="button" onPress={() => {
+        setSection('book');
+        setScreen(readBooks.length ? 'read' : 'discover');
+        setSelectedPillar(null);
+        setSelectedBookId(null);
+      }} style={styles.resetButton}>
+        <Sparkles color={colors.brandDeep} size={16} />
+        <Text style={styles.resetButtonText}>{readBooks.length ? 'OPEN READ SHELF' : 'FIND A BOOK'}</Text>
+      </Pressable>
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -600,7 +778,7 @@ export default function DiscoverScreen() {
         {isWide && (
           <View style={styles.sidebar}>
             <View style={styles.brandLockup}>
-              <View style={styles.brandMark}><BookOpen color="#173b31" size={20} strokeWidth={2} /></View>
+              <View style={styles.brandMark}><BookOpen color={colors.forest} size={20} strokeWidth={2} /></View>
               <Text style={styles.brandName}>booquip</Text>
             </View>
             <Text style={styles.sidebarEyebrow}>YOUR LIBRARY</Text>
@@ -630,7 +808,7 @@ export default function DiscoverScreen() {
         <View style={styles.mainArea}>
           <View style={styles.mobileHeader}>
             <View style={styles.brandLockup}>
-              <View style={styles.brandMark}><BookOpen color="#173b31" size={18} strokeWidth={2} /></View>
+              <View style={styles.brandMark}><BookOpen color={colors.forest} size={18} strokeWidth={2} /></View>
               <Text style={styles.brandName}>booquip</Text>
             </View>
             <Pressable
@@ -641,7 +819,7 @@ export default function DiscoverScreen() {
               onPress={() => setIsAccountSheetVisible(true)}
               style={[styles.accountButton, syncStatus === 'loading' && styles.navItemDisabled]}
             >
-              <UserRound color="#547465" size={16} />
+              <UserRound color={colors.brandMuted} size={16} />
               <Text style={styles.accountButtonText}>{isAnonymous ? 'Link shelf' : 'Account'}</Text>
             </Pressable>
           </View>
@@ -655,101 +833,62 @@ export default function DiscoverScreen() {
             </View>
           )}
 
+          {section === 'quip' ? (
+            <FlashList
+              style={styles.contentList}
+              contentContainerStyle={[styles.content, !isWide && styles.contentMobile]}
+              data={quipBooks}
+              keyExtractor={(item) => item.id}
+              renderItem={renderQuipBook}
+              ListHeaderComponent={quipListHeader}
+              ListEmptyComponent={emptyQuipState}
+              ListFooterComponent={pageFooter}
+            />
+          ) : section === 'book' && screen !== 'discover' ? (
+            <FlashList
+              style={styles.contentList}
+              contentContainerStyle={[styles.content, !isWide && styles.contentMobile]}
+              data={shelfBooks}
+              keyExtractor={(item) => item.id}
+              renderItem={renderShelfBook}
+              extraData={[screen, quipBookIds, frozenUntil, isSaving, syncStatus]}
+              ListHeaderComponent={shelfListHeader}
+              ListEmptyComponent={emptyShelfState}
+              ListFooterComponent={pageFooter}
+            />
+          ) : (
           <ScrollView contentContainerStyle={[styles.content, !isWide && styles.contentMobile]}>
-            <View style={styles.pageHeading}>
-              <View>
-                <Text style={styles.eyebrow}>{section === 'home' ? 'YOUR LIBRARY' : section === 'book' ? 'BOOK' : 'QUIP'}</Text>
-                <Text style={styles.pageTitle}>{section === 'home' ? 'Your Library' : section === 'book' ? screenTitle : 'Your Quip library'}</Text>
-              </View>
-              {isWide && <Text style={styles.issueMark}>FIELD NOTES <Text style={styles.issueDot}>·</Text> 2026</Text>}
-            </View>
-            <View style={styles.syncStatusRow}>
-              <View style={[styles.syncDot, syncStatus === 'connected' && styles.syncDotConnected, syncStatus === 'error' && styles.syncDotError]} />
-              <Text numberOfLines={1} style={styles.syncStatusText}>{syncLabel}</Text>
-            </View>
+            {pageHeading}
+            {syncStatusIndicator}
 
             {section === 'home' ? (
               <View style={styles.hubSections}>
                 <Pressable accessibilityRole="button" onPress={() => { setSection('book'); setScreen('discover'); }}
                   style={({ pressed }) => [styles.hubSection, pressed && styles.hubSectionPressed]}>
-                  <View style={styles.hubSectionIcon}><BookOpen color="#34755e" size={21} /></View>
+                  <View style={styles.hubSectionIcon}><BookOpen color={colors.brand} size={21} /></View>
                   <View style={styles.hubSectionCopy}>
                     <Text style={styles.hubSectionEyebrow}>DISCOVER AND COLLECT</Text>
                     <Text style={styles.hubSectionTitle}>Book</Text>
                     <Text style={styles.hubSectionDescription}>Find a book, save it, mark it read, or snooze it for later.</Text>
                   </View>
-                  <ArrowRight color="#728077" size={18} />
+                  <ArrowRight color={colors.secondary} size={18} />
                 </Pressable>
                 <Pressable accessibilityRole="button" onPress={() => setSection('quip')}
                   style={({ pressed }) => [styles.hubSection, pressed && styles.hubSectionPressed]}>
-                  <View style={styles.hubSectionIcon}><MessageCircle color="#477d6c" size={21} /></View>
+                  <View style={styles.hubSectionIcon}><MessageCircle color={colors.brandMuted} size={21} /></View>
                   <View style={styles.hubSectionCopy}>
                     <Text style={styles.hubSectionEyebrow}>WRITE FROM WHAT YOU READ</Text>
                     <Text style={styles.hubSectionTitle}>Quip</Text>
                     <Text style={styles.hubSectionDescription}>{quipBooks.length ? `${quipBooks.length} Read ${quipBooks.length === 1 ? 'book is' : 'books are'} switched on for Quip.` : 'Choose which Read books to keep in your Quip library.'}</Text>
                   </View>
-                  <ArrowRight color="#728077" size={18} />
+                  <ArrowRight color={colors.secondary} size={18} />
                 </Pressable>
-              </View>
-            ) : section === 'quip' ? (
-              <View style={styles.quipSection}>
-                <View style={styles.quipHeader}>
-                  <View style={styles.quipIntro}>
-                    <Text style={styles.quipCount}>{quipBooks.length} {quipBooks.length === 1 ? 'BOOK' : 'BOOKS'} IN QUIP</Text>
-                    <Text style={styles.quipDescription}>Read books you switch on are collected here.</Text>
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={quipBooks.length === 0 || syncStatus === 'loading'}
-                    onPress={() => setIsTrendReplyVisible(true)}
-                    style={({ pressed }) => [styles.quipButton, (quipBooks.length === 0 || syncStatus === 'loading') && styles.actionDisabled, pressed && styles.actionPressed]}
-                  >
-                    <MessageCircle color="#fffaf6" size={16} />
-                    <Text style={styles.quipButtonText}>REPLY TO TREND</Text>
-                  </Pressable>
-                </View>
-                {quipBooks.length === 0 ? (
-                  <View style={styles.quipEmptyState}>
-                    <View style={styles.emptyIcon}><BookOpen color="#3d735f" size={22} /></View>
-                    <View style={styles.quipEmptyCopy}>
-                      <Text style={styles.emptyTitle}>{readBooks.length ? 'Quip is off for all Read books.' : 'Your Read shelf is empty.'}</Text>
-                      <Text style={styles.emptyCopy}>{readBooks.length ? 'Turn Quip on for a book from your Read shelf to add it here.' : 'Mark a book as read, then switch Quip on to add it here.'}</Text>
-                    </View>
-                    <Pressable accessibilityRole="button" onPress={() => {
-                      setSection('book');
-                      setScreen(readBooks.length ? 'read' : 'discover');
-                      setSelectedPillar(null);
-                      setSelectedBookId(null);
-                    }} style={styles.resetButton}>
-                      <Sparkles color="#285f4e" size={16} /><Text style={styles.resetButtonText}>{readBooks.length ? 'OPEN READ SHELF' : 'FIND A BOOK'}</Text>
-                    </Pressable>
-                  </View>
-                ) : (
-                  <View style={styles.quipShelf}>
-                    <View style={styles.quipShelfHeading}>
-                      <Text style={styles.sectionLabel}>SWITCHED ON FOR QUIP</Text>
-                      <Text style={styles.stackCount}>{quipBooks.length} {quipBooks.length === 1 ? 'BOOK' : 'BOOKS'}</Text>
-                    </View>
-                    {quipBooks.map((item) => (
-                      <View key={item.id} style={styles.quipBookRow}>
-                        <View style={[styles.quipBookCover, { backgroundColor: item.color }]}>
-                          <BookOpen color="#fffaf0" size={18} strokeWidth={1.6} />
-                        </View>
-                        <View style={styles.quipBookCopy}>
-                          <Text style={styles.quipBookTitle}>{item.title}</Text>
-                          <Text style={styles.quipBookAuthor}>{item.author}{item.year ? ` · ${item.year}` : ''}</Text>
-                        </View>
-                        <Text style={styles.quipEnabledLabel}>QUIP ON</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
               </View>
             ) : screen === 'discover' ? (
               <>
                 <View style={styles.searchSection}>
                   <View style={styles.searchInputWrap}>
-                    <Search color="#718077" size={17} />
+                    <Search color={colors.secondary} size={17} />
                     <TextInput
                       accessibilityLabel="Search books by title or author"
                       autoCapitalize="none"
@@ -764,14 +903,14 @@ export default function DiscoverScreen() {
                         }
                       }}
                       placeholder="Find a title or author"
-                      placeholderTextColor="#8d9990"
+                      placeholderTextColor={colors.muted}
                       returnKeyType="search"
                       style={styles.searchInput}
                       value={searchQuery}
                     />
                     {searchQuery.length > 0 && (
                       <Pressable accessibilityRole="button" accessibilityLabel="Clear book search" onPress={() => setSearchQuery('')} style={styles.searchClear}>
-                        <X color="#718077" size={16} />
+                        <X color={colors.secondary} size={16} />
                       </Pressable>
                     )}
                   </View>
@@ -812,7 +951,7 @@ export default function DiscoverScreen() {
                     onPress={handleSurpriseMe}
                     style={({ pressed }) => [styles.surpriseButton, styles.surpriseButtonActive, (syncStatus === 'loading' || categoryBooks.length === 0) && styles.actionDisabled, pressed && styles.surpriseButtonPressed]}
                   >
-                    <Sparkles color="#fffaf6" size={14} />
+                    <Sparkles color={colors.brandContrast} size={14} />
                     <Text style={styles.surpriseText}>SURPRISE ME</Text>
                   </Pressable>
                 </View>
@@ -845,22 +984,11 @@ export default function DiscoverScreen() {
                 </View>
 
                 {book ? (
-                  <Animated.View
-                    {...panResponder.panHandlers}
-                    style={[
-                      styles.bookCard,
-                      !isWide && styles.bookCardMobile,
-                      {
-                        transform: [
-                          ...drag.getTranslateTransform(),
-                          { rotate: drag.x.interpolate({ inputRange: [-300, 0, 300], outputRange: ['-8deg', '0deg', '8deg'] }) },
-                        ],
-                      },
-                    ]}
-                  >
+                  <GestureDetector gesture={cardGesture}>
+                    <Animated.View style={[styles.bookCard, !isWide && styles.bookCardMobile, bookCardStyle]}>
                     <View style={[styles.coverFrame, !isWide && styles.coverFrameMobile, { backgroundColor: book.color }]}>
                       <View style={styles.coverFallback}>
-                        <BookOpen color="#fffaf0" size={32} strokeWidth={1.5} />
+                        <BookOpen color={colors.white} size={32} strokeWidth={1.5} />
                         <Text style={styles.coverFallbackTitle}>{book.title}</Text>
                         <Text style={styles.coverFallbackAuthor}>{book.author}</Text>
                       </View>
@@ -876,8 +1004,8 @@ export default function DiscoverScreen() {
                       <View style={styles.coverCaption}><Text style={styles.coverCaptionText}>A BOOQUIP PICK</Text></View>
                     </View>
                     <View style={[styles.bookInfo, !isWide && styles.bookInfoMobile]}>
-                      <View style={[styles.pillarTag, { borderColor: currentPillar?.color ?? '#557b6f' }]}>
-                        <View style={[styles.pillarDot, { backgroundColor: currentPillar?.color ?? '#557b6f' }]} />
+                      <View style={[styles.pillarTag, { borderColor: currentPillar?.color ?? colors.brandMuted }]}>
+                        <View style={[styles.pillarDot, { backgroundColor: currentPillar?.color ?? colors.brandMuted }]} />
                         <Text style={styles.pillarTagText}>{currentPillar?.label.toUpperCase()}</Text>
                       </View>
                       {chartSignals.length > 0 && (
@@ -901,7 +1029,7 @@ export default function DiscoverScreen() {
                                   onPress={() => void Linking.openURL(signal.sourceUrl)}
                                   style={styles.chartSourceLink}
                                 >
-                                  <ExternalLink color="#55766a" size={15} />
+                                  <ExternalLink color={colors.brandMuted} size={15} />
                                 </Pressable>
                               ) : null}
                             </View>
@@ -915,7 +1043,7 @@ export default function DiscoverScreen() {
                       <Text style={styles.bookNote}>{book.note}</Text>
                       <View style={styles.adaptationSection}>
                         <View style={styles.adaptationHeader}>
-                          <Tv color="#68786e" size={14} />
+                          <Tv color={colors.secondary} size={14} />
                           <Text style={styles.noteLabel}>ON SCREEN</Text>
                         </View>
                         {book.adaptations?.length ? book.adaptations.map((adaptation) => (
@@ -957,7 +1085,7 @@ export default function DiscoverScreen() {
                             onPress={() => void handleGetOnRamp()}
                             style={({ pressed }) => [styles.onRampButton, (isOnRampLoading || syncStatus === 'loading') && styles.actionDisabled, pressed && styles.actionPressed]}
                           >
-                            <Sparkles color="#34755e" size={14} />
+                            <Sparkles color={colors.brand} size={14} />
                             <Text style={styles.onRampButtonText}>{isOnRampLoading ? 'THINKING…' : onRampText ? 'TRY AGAIN' : 'GET ON-RAMP'}</Text>
                           </Pressable>
                         </View>
@@ -966,13 +1094,14 @@ export default function DiscoverScreen() {
                       </View>
                       <View style={styles.cardFooter}>
                         <Text style={styles.catalogId}>BQ · {book.id.toUpperCase()}</Text>
-                        <BookOpen color="#95a19a" size={17} strokeWidth={1.6} />
+                        <BookOpen color={colors.quiet} size={17} strokeWidth={1.6} />
                       </View>
                     </View>
-                  </Animated.View>
+                    </Animated.View>
+                  </GestureDetector>
                 ) : selectedPillar ? (
                   <View style={styles.emptyState}>
-                    <View style={styles.emptyIcon}><BookOpen color="#3d735f" size={24} /></View>
+                    <View style={styles.emptyIcon}><BookOpen color={colors.brandMuted} size={24} /></View>
                     <Text style={styles.emptyTitle}>No available books in {currentPillar?.label}.</Text>
                     <Text style={styles.emptyCopy}>
                       {selectedPillar === 'charts' && chartLoadError
@@ -1003,93 +1132,7 @@ export default function DiscoverScreen() {
                   </View>
                 )}
               </>
-            ) : (
-              <View style={styles.shelfView}>
-                <View style={styles.pillarHeader}>
-                  <Text style={styles.sectionLabel}>{screen === 'tbr' ? 'SAVED FOR LATER' : screen === 'read' ? 'MARKED AS READ' : 'SNOOZED FOR LATER'}</Text>
-                  <Text style={styles.stackCount}>{String(shelfBooks.length).padStart(2, '0')} BOOKS</Text>
-                </View>
-                {shelfBooks.length === 0 ? (
-                  <View style={styles.emptyState}>
-                    <View style={styles.emptyIcon}><BookOpen color="#3d735f" size={24} /></View>
-                    <Text style={styles.emptyTitle}>{screen === 'snoozed' ? 'Nothing on snooze.' : 'A shelf with room to grow.'}</Text>
-                    <Text style={styles.emptyCopy}>{screen === 'snoozed' ? 'Books you snooze will return to discovery after their 90-day break.' : 'Books you sort in discovery will appear here.'}</Text>
-                    <Pressable onPress={() => setScreen('discover')} style={styles.resetButton}>
-                      <Sparkles color="#285f4e" size={16} />
-                      <Text style={styles.resetButtonText}>Discover books</Text>
-                    </Pressable>
-                  </View>
-                ) : (
-                  <View style={styles.shelfList}>
-                    {shelfBooks.map((item, index) => (
-                      <View key={item.id} style={[styles.shelfRow, screen === 'snoozed' ? styles.snoozedShelfRow : styles.returnShelfRow]}>
-                        <Text style={styles.shelfIndex}>{String(index + 1).padStart(2, '0')}</Text>
-                        <View style={[styles.shelfSwatch, { backgroundColor: item.color }]} />
-                        <View style={styles.shelfText}>
-                          <Text style={styles.shelfTitle}>{item.title}</Text>
-                          <Text style={styles.shelfAuthor}>{item.author}{item.year ? ` · ${item.year}` : ''}</Text>
-                        </View>
-                        {screen === 'snoozed' ? (
-                          <Text style={[styles.shelfPillar, styles.shelfReturn]}>
-                            {`RETURNS ${new Date(frozenUntil[item.id]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).toUpperCase()}`}
-                          </Text>
-                        ) : isWide ? (
-                          <Text style={styles.shelfPillar}>{pillars.find((pillar) => pillar.id === item.pillar)?.label.toUpperCase()}</Text>
-                        ) : null}
-                        {screen === 'snoozed' && item.isActive === false && <Text style={styles.archivedLabel}>ARCHIVED</Text>}
-                        {screen === 'snoozed' && item.isActive !== false && (
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={`Wake ${item.title} and return it to discovery now`}
-                            disabled={isSaving}
-                            onPress={() => handleWakeBook(item.id)}
-                            style={({ pressed }) => [styles.wakeButton, isSaving && styles.actionDisabled, pressed && styles.actionPressed]}
-                          >
-                            <RotateCcw color="#8a6e46" size={15} />
-                            <Text style={styles.wakeButtonText}>WAKE</Text>
-                          </Pressable>
-                        )}
-                        {screen === 'read' && (
-                          <Pressable
-                            accessibilityRole="switch"
-                            accessibilityState={{
-                              checked: quipBookIds.includes(item.id),
-                              disabled: isSaving || syncStatus === 'loading',
-                            }}
-                            accessibilityLabel={`${quipBookIds.includes(item.id) ? 'Quip on for' : 'Quip off for'} ${item.title}`}
-                            disabled={isSaving || syncStatus === 'loading'}
-                            onPress={() => handleQuipToggle(item.id)}
-                            style={({ pressed }) => [
-                              styles.quipToggle,
-                              quipBookIds.includes(item.id) && styles.quipToggleEnabled,
-                              (isSaving || syncStatus === 'loading') && styles.actionDisabled,
-                              pressed && styles.actionPressed,
-                            ]}
-                          >
-                            <MessageCircle color={quipBookIds.includes(item.id) ? '#34755e' : '#718077'} size={14} />
-                            <Text style={[styles.quipToggleLabel, quipBookIds.includes(item.id) && styles.quipToggleLabelEnabled]}>
-                              {quipBookIds.includes(item.id) ? 'QUIP ON' : 'QUIP OFF'}
-                            </Text>
-                          </Pressable>
-                        )}
-                        {screen !== 'snoozed' && (
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={item.isActive === false ? `Remove archived ${item.title} from this shelf` : `Remove ${item.title} from this shelf and return it to discovery`}
-                            disabled={isSaving || syncStatus === 'loading'}
-                            onPress={() => handleRemoveFromShelf(item.id)}
-                            style={({ pressed }) => [styles.returnBookButton, isSaving && styles.actionDisabled, pressed && styles.actionPressed]}
-                          >
-                            <RotateCcw color="#34755e" size={14} />
-                            <Text style={styles.returnBookButtonText}>{item.isActive === false ? 'REMOVE' : 'RETURN'}</Text>
-                          </Pressable>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            )}
+            ) : null}
 
             {isWide && (
               <View style={styles.pageFooter}>
@@ -1098,6 +1141,7 @@ export default function DiscoverScreen() {
               </View>
             )}
           </ScrollView>
+          )}
           {!isWide && (
             <View style={styles.bottomBar}>
               <BottomTab label="Home" active={section === 'home'} onPress={() => setSection('home')} icon={House} />
@@ -1141,194 +1185,195 @@ export default function DiscoverScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f7f5ef' },
-  appShell: { flex: 1, flexDirection: 'row', backgroundColor: '#f7f5ef' },
-  sidebar: { width: 238, backgroundColor: '#1e302d', paddingHorizontal: 24, paddingTop: 32, paddingBottom: 22 },
+  safeArea: { flex: 1, backgroundColor: colors.page },
+  appShell: { flex: 1, flexDirection: 'row', backgroundColor: colors.page },
+  sidebar: { width: 238, backgroundColor: colors.forest, paddingHorizontal: spacing.xl, paddingTop: spacing.xxl, paddingBottom: 22 },
   brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brandMark: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#9ad9b7', alignItems: 'center', justifyContent: 'center' },
-  brandName: { color: '#f6f7f3', fontSize: 21, fontWeight: '700', letterSpacing: -0.5 },
-  sidebarEyebrow: { color: '#8a9991', fontSize: 10, fontWeight: '700', letterSpacing: 1.4, marginTop: 56, marginBottom: 15 },
-  navItem: { height: 48, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, borderRadius: 14, marginBottom: 5 },
-  navItemCompact: { flex: 1, justifyContent: 'center', gap: 5, paddingHorizontal: 4, marginBottom: 0, borderRadius: 14 },
-  navItemActive: { backgroundColor: '#e1efe4' },
+  brandMark: { width: 36, height: 36, borderRadius: 12, backgroundColor: colors.brandHighlight, alignItems: 'center', justifyContent: 'center' },
+  brandName: { color: colors.surfaceWarm, fontSize: type.brand, fontWeight: '700', letterSpacing: -0.5 },
+  sidebarEyebrow: { color: colors.navMuted, fontSize: type.caption, fontWeight: '700', letterSpacing: 1.4, marginTop: 56, marginBottom: 15 },
+  navItem: { height: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radii.md, marginBottom: 5 },
+  navItemCompact: { flex: 1, justifyContent: 'center', gap: 5, paddingHorizontal: spacing.xxs, marginBottom: 0, borderRadius: 14 },
+  navItemActive: { backgroundColor: colors.brandSoft },
   navItemDisabled: { opacity: 0.5 },
-  navLabel: { flex: 1, color: '#bdc8c0', fontSize: 13, fontWeight: '500' },
+  navLabel: { flex: 1, color: colors.navText, fontSize: type.bodyMedium, fontWeight: '500' },
   navLabelCompact: { flex: 0, fontSize: 10 },
-  navLabelActive: { color: '#243b35', fontWeight: '700' },
-  navCount: { color: '#9eaaa3', fontSize: 12, fontVariant: ['tabular-nums'] },
-  sidebarFooter: { marginTop: 'auto', borderTopWidth: 1, borderTopColor: '#3a4b46', paddingTop: 17 },
-  sidebarFooterLabel: { color: '#8a9991', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
-  sidebarFooterText: { color: '#d7e0da', fontSize: 12, lineHeight: 18, marginTop: 8, maxWidth: 170 },
+  navLabelActive: { color: colors.forestSelected, fontWeight: '700' },
+  navCount: { color: colors.quiet, fontSize: type.footnote, fontVariant: ['tabular-nums'] },
+  sidebarFooter: { marginTop: 'auto', borderTopWidth: 1, borderTopColor: colors.forestLine, paddingTop: 17 },
+  sidebarFooterLabel: { color: colors.navMuted, fontSize: type.label, fontWeight: '700', letterSpacing: 1.1 },
+  sidebarFooterText: { color: colors.borderStrong, fontSize: type.footnote, lineHeight: 18, marginTop: spacing.xs, maxWidth: 170 },
   mainArea: { flex: 1, minWidth: 0 },
-  mobileHeader: { minHeight: 66, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, backgroundColor: '#fbfaf6' },
-  mobileEdition: { color: '#728077', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
-  accountButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 13, borderRadius: 22, backgroundColor: '#edf2eb' },
-  accountButtonText: { color: '#426450', fontSize: 10, fontWeight: '700' },
-  mobileNav: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#f7f5ef' },
-  bookShelfNav: { borderBottomWidth: 1, borderBottomColor: '#eeeae1' },
-  bottomBar: { minHeight: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 14, borderTopWidth: 1, borderTopColor: '#ebe8df', backgroundColor: '#fffefa' },
-  bottomTab: { minWidth: 78, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 4, borderRadius: 15 },
-  bottomTabLabel: { color: '#87938b', fontSize: 10, fontWeight: '600' },
-  bottomTabLabelActive: { color: '#245b49', fontWeight: '700' },
+  mobileHeader: { minHeight: 66, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.lg, backgroundColor: colors.surfaceWarm },
+  mobileEdition: { color: colors.secondary, fontSize: type.label, fontWeight: '700', letterSpacing: 1.1 },
+  accountButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: 13, borderRadius: 22, backgroundColor: colors.brandPale },
+  accountButtonText: { color: colors.brandMuted, fontSize: type.caption, fontWeight: '700' },
+  mobileNav: { flexDirection: 'row', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, backgroundColor: colors.page },
+  bookShelfNav: { borderBottomWidth: 1, borderBottomColor: colors.border },
+  bottomBar: { minHeight: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 14, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface },
+  bottomTab: { minWidth: 78, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, borderRadius: 15 },
+  bottomTabLabel: { color: colors.muted, fontSize: type.caption, fontWeight: '600' },
+  bottomTabLabelActive: { color: colors.brandDeep, fontWeight: '700' },
   hubSections: { maxWidth: 860, width: '100%', alignSelf: 'center', gap: 14 },
-  hubSection: { minHeight: 132, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 18, paddingVertical: 20, borderWidth: 1, borderColor: '#eee9df', borderRadius: 22, backgroundColor: '#fffefa', shadowColor: '#314b3e', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 1 },
-  hubSectionPressed: { backgroundColor: '#f2f5ee', transform: [{ scale: 0.99 }] },
-  hubSectionIcon: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: '#e7f1e6' },
+  hubSection: { minHeight: 132, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: 18, paddingVertical: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: 22, backgroundColor: colors.surface, shadowColor: colors.forest, shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 1 },
+  hubSectionPressed: { backgroundColor: colors.surfaceMuted, transform: [{ scale: 0.99 }] },
+  hubSectionIcon: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: colors.brandSoft },
   hubSectionCopy: { flex: 1, minWidth: 0 },
-  hubSectionEyebrow: { color: '#728077', fontSize: 10, fontWeight: '700' },
-  hubSectionTitle: { color: '#29382f', fontSize: 24, lineHeight: 30, fontWeight: '700', marginTop: 4 },
-  hubSectionDescription: { color: '#68766d', fontSize: 13, lineHeight: 19, marginTop: 5, maxWidth: 450 },
-  quipSection: { maxWidth: 860, width: '100%', alignSelf: 'center', padding: 20, borderWidth: 1, borderColor: '#eee9df', borderRadius: 22, backgroundColor: '#fffefa' },
-  quipHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 22 },
+  hubSectionEyebrow: { color: colors.secondary, fontSize: type.caption, fontWeight: '700' },
+  hubSectionTitle: { color: colors.ink, fontSize: type.sectionTitle, lineHeight: 30, fontWeight: '700', marginTop: 4 },
+  hubSectionDescription: { color: colors.secondary, fontSize: type.bodyMedium, lineHeight: 19, marginTop: 5, maxWidth: 450 },
+  quipSection: { maxWidth: 860, width: '100%', alignSelf: 'center', padding: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: 22, backgroundColor: colors.surface },
+  quipHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.sm, marginBottom: 22 },
   quipIntro: { flex: 1, minWidth: 220 },
-  quipCount: { color: '#688074', fontSize: 11, fontWeight: '700' },
-  quipDescription: { maxWidth: 470, color: '#34433b', fontSize: 16, lineHeight: 24, marginTop: 8, marginBottom: 14 },
-  quipButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, borderRadius: 16, backgroundColor: '#2f725b' },
-  quipButtonText: { color: '#fffaf6', fontSize: 11, fontWeight: '700' },
-  quipEmptyState: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 14, padding: 18, borderWidth: 1, borderColor: '#e9e9df', borderRadius: 18, backgroundColor: '#f8f8f2' },
+  quipCount: { color: colors.secondary, fontSize: type.bodySmall, fontWeight: '700' },
+  quipDescription: { maxWidth: 470, color: colors.body, fontSize: type.subtitle, lineHeight: 24, marginTop: spacing.xs, marginBottom: 14 },
+  quipButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, borderRadius: 16, backgroundColor: colors.brandStrong },
+  quipButtonText: { color: colors.brandContrast, fontSize: type.bodySmall, fontWeight: '700' },
+  quipEmptyState: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 14, padding: 18, borderWidth: 1, borderColor: colors.border, borderRadius: 18, backgroundColor: colors.surfaceMuted },
   quipEmptyCopy: { flex: 1, minWidth: 200 },
-  quipShelf: { borderTopWidth: 1, borderTopColor: '#eeeae1', paddingTop: 8 },
+  quipShelf: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 },
   quipShelfHeading: { minHeight: 43, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  quipBookRow: { minHeight: 78, flexDirection: 'row', alignItems: 'center', gap: 13, marginTop: 8, paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderColor: '#eee9df', borderRadius: 16, backgroundColor: '#fffefa' },
+  quipBookRow: { minHeight: 78, flexDirection: 'row', alignItems: 'center', gap: 13, marginTop: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: 9, borderWidth: 1, borderColor: colors.border, borderRadius: 16, backgroundColor: colors.surface },
   quipBookCover: { width: 44, height: 60, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
   quipBookCopy: { flex: 1, minWidth: 0 },
-  quipBookTitle: { color: '#29382f', fontSize: 14, lineHeight: 19, fontWeight: '700' },
-  quipBookAuthor: { color: '#78857d', fontSize: 11, lineHeight: 16, marginTop: 3 },
-  quipEnabledLabel: { color: '#34755e', fontSize: 10, fontWeight: '700', paddingHorizontal: 8 },
+  quipBookTitle: { color: colors.ink, fontSize: type.body, lineHeight: 19, fontWeight: '700' },
+  quipBookAuthor: { color: colors.muted, fontSize: type.bodySmall, lineHeight: 16, marginTop: 3 },
+  quipEnabledLabel: { color: colors.brand, fontSize: type.caption, fontWeight: '700', paddingHorizontal: 8 },
+  contentList: { flex: 1 },
   content: { width: '100%', maxWidth: 1050, alignSelf: 'center', paddingHorizontal: 56, paddingTop: 43, paddingBottom: 24 },
-  contentMobile: { paddingHorizontal: 18, paddingTop: 24, paddingBottom: 28 },
+  contentMobile: { paddingHorizontal: 18, paddingTop: spacing.xl, paddingBottom: 28 },
   pageHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 22 },
-  syncStatusRow: { minHeight: 34, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', marginTop: -10, marginBottom: 22, paddingHorizontal: 11, borderRadius: 18, backgroundColor: '#edf2e9' },
-  syncDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#aab4ac' },
-  syncDotConnected: { backgroundColor: '#398466' },
-  syncDotError: { backgroundColor: '#c45d4e' },
-  syncStatusText: { flexShrink: 1, color: '#557263', fontSize: 11, fontWeight: '600' },
-  eyebrow: { color: '#638070', fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginBottom: 8 },
-  pageTitle: { color: '#25332d', fontSize: 32, lineHeight: 39, fontWeight: '700', letterSpacing: -0.5 },
-  issueMark: { color: '#829087', fontSize: 10, fontWeight: '700', letterSpacing: 1, paddingBottom: 5 },
-  issueDot: { color: '#d7805b' },
+  syncStatusRow: { minHeight: 34, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: spacing.xs, alignSelf: 'flex-start', marginTop: -10, marginBottom: 22, paddingHorizontal: 11, borderRadius: 18, backgroundColor: colors.brandPale },
+  syncDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.quiet },
+  syncDotConnected: { backgroundColor: colors.brand },
+  syncDotError: { backgroundColor: colors.danger },
+  syncStatusText: { flexShrink: 1, color: colors.brandMuted, fontSize: type.bodySmall, fontWeight: '600' },
+  eyebrow: { color: colors.secondary, fontSize: type.bodySmall, fontWeight: '700', letterSpacing: 0.8, marginBottom: 8 },
+  pageTitle: { color: colors.inkStrong, fontSize: type.display, lineHeight: 39, fontWeight: '700', letterSpacing: -0.5 },
+  issueMark: { color: colors.muted, fontSize: type.caption, fontWeight: '700', letterSpacing: 1, paddingBottom: 5 },
+  issueDot: { color: colors.warm },
   pillarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
-  sectionLabel: { color: '#68786e', fontSize: 10, fontWeight: '700', letterSpacing: 0.65 },
-  stackCount: { color: '#929d95', fontSize: 9, fontWeight: '700', letterSpacing: 0.8 },
-  categoryRow: { maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', gap: 8, marginBottom: 22 },
-  categoryButton: { flex: 1, minWidth: 0, minHeight: 72, justifyContent: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: '#e5e4d9', borderRadius: 14, backgroundColor: '#fffefa' },
+  sectionLabel: { color: colors.secondary, fontSize: type.caption, fontWeight: '700', letterSpacing: 0.65 },
+  stackCount: { color: colors.quiet, fontSize: type.label, fontWeight: '700', letterSpacing: 0.8 },
+  categoryRow: { maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', gap: spacing.xs, marginBottom: 22 },
+  categoryButton: { flex: 1, minWidth: 0, minHeight: 72, justifyContent: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.md, backgroundColor: colors.surface },
   categoryButtonMobile: { flexBasis: '47%', minHeight: 76, paddingHorizontal: 14 },
   categoryRowMobile: { flexWrap: 'wrap' },
-  categoryButtonSelected: { borderColor: '#2f725b', backgroundColor: '#2f725b' },
+  categoryButtonSelected: { borderColor: colors.brandStrong, backgroundColor: colors.brandStrong },
   categoryDot: { width: 7, height: 7, borderRadius: 4 },
   categoryButtonCopy: { minWidth: 0 },
-  categoryButtonTitle: { color: '#35433b', fontSize: 12, lineHeight: 16, fontWeight: '700' },
-  categoryButtonTitleSelected: { color: '#fffaf6' },
-  categoryButtonCount: { color: '#879188', fontSize: 9, marginTop: 2 },
-  categoryButtonCountSelected: { color: '#e5eee7' },
+  categoryButtonTitle: { color: colors.body, fontSize: type.footnote, lineHeight: 16, fontWeight: '700' },
+  categoryButtonTitleSelected: { color: colors.brandContrast },
+  categoryButtonCount: { color: colors.muted, fontSize: type.label, marginTop: 2 },
+  categoryButtonCountSelected: { color: colors.brandSoft },
   searchSection: { maxWidth: 860, width: '100%', alignSelf: 'center', marginBottom: 22, zIndex: 2 },
-  searchInputWrap: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: '#e5e4d9', borderRadius: 16, backgroundColor: '#fffefa', paddingHorizontal: 15 },
-  searchInput: { flex: 1, minWidth: 0, height: 50, color: '#29382f', fontSize: 15 },
+  searchInputWrap: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 16, backgroundColor: colors.surface, paddingHorizontal: 15 },
+  searchInput: { flex: 1, minWidth: 0, height: 50, color: colors.ink, fontSize: 15 },
   searchClear: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
-  searchResults: { borderWidth: 1, borderColor: '#d8e0d7', borderTopWidth: 0, borderBottomLeftRadius: 5, borderBottomRightRadius: 5, backgroundColor: '#fffefa', overflow: 'hidden' },
-  searchResult: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 13, borderTopWidth: 1, borderTopColor: '#e8ece6' },
-  searchResultPressed: { backgroundColor: '#f0f4ef' },
+  searchResults: { borderWidth: 1, borderColor: colors.borderStrong, borderTopWidth: 0, borderBottomLeftRadius: 5, borderBottomRightRadius: 5, backgroundColor: colors.surface, overflow: 'hidden' },
+  searchResult: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: 13, borderTopWidth: 1, borderTopColor: colors.border },
+  searchResultPressed: { backgroundColor: colors.surfaceMuted },
   searchSwatch: { width: 4, height: 34, borderRadius: 2 },
   searchResultText: { flex: 1, minWidth: 0 },
-  searchResultTitle: { color: '#29382f', fontSize: 12, fontWeight: '600' },
-  searchResultAuthor: { color: '#78857d', fontSize: 10, marginTop: 3 },
-  searchResultShelf: { color: '#819087', fontSize: 8, fontWeight: '700', letterSpacing: 0.5 },
-  searchEmpty: { color: '#718077', fontSize: 12, paddingHorizontal: 14, paddingVertical: 16 },
-  surpriseButtonPressed: { backgroundColor: '#285e4c' },
-  pillarRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 27 },
-  pillarButton: { minHeight: 39, paddingHorizontal: 16, borderRadius: 5, borderWidth: 1, borderColor: '#d2dad2', justifyContent: 'center', backgroundColor: '#f8f9f6' },
+  searchResultTitle: { color: colors.ink, fontSize: type.footnote, fontWeight: '600' },
+  searchResultAuthor: { color: colors.muted, fontSize: type.caption, marginTop: 3 },
+  searchResultShelf: { color: colors.muted, fontSize: type.tiny, fontWeight: '700', letterSpacing: 0.5 },
+  searchEmpty: { color: colors.secondary, fontSize: type.footnote, paddingHorizontal: 14, paddingVertical: 16 },
+  surpriseButtonPressed: { backgroundColor: colors.brandDeep },
+  pillarRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: 27 },
+  pillarButton: { minHeight: 39, paddingHorizontal: spacing.md, borderRadius: 5, borderWidth: 1, borderColor: colors.borderStrong, justifyContent: 'center', backgroundColor: colors.surfaceMuted },
   pillarButtonDisabled: { opacity: 0.62 },
-  pillarButtonText: { color: '#516057', fontSize: 12, fontWeight: '600' },
-  pillarButtonTextActive: { color: '#fffaf6' },
-  surpriseButton: { minHeight: 39, paddingHorizontal: 13, borderRadius: 5, borderWidth: 1, borderColor: '#b9d1c4', flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: '#e7f0e9' },
-  surpriseButtonActive: { backgroundColor: '#34755e', borderColor: '#34755e' },
-  surpriseText: { color: '#346c5c', fontSize: 12, fontWeight: '700' },
+  pillarButtonText: { color: colors.body, fontSize: type.footnote, fontWeight: '600' },
+  pillarButtonTextActive: { color: colors.brandContrast },
+  surpriseButton: { minHeight: 39, paddingHorizontal: 13, borderRadius: 5, borderWidth: 1, borderColor: colors.brandSoft, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: colors.brandSoft },
+  surpriseButtonActive: { backgroundColor: colors.brand, borderColor: colors.brand },
+  surpriseText: { color: colors.brandMuted, fontSize: type.footnote, fontWeight: '700' },
   cardMetaRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  cardPosition: { color: '#98a199', fontSize: 9, fontWeight: '700', letterSpacing: 0.8 },
+  cardPosition: { color: colors.quiet, fontSize: type.label, fontWeight: '700', letterSpacing: 0.8 },
   bookChartSignals: { gap: 7, marginTop: 13 },
-  bookChartSignal: { minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderColor: '#d8e0e7', borderRadius: 4, backgroundColor: '#f3f5f8' },
+  bookChartSignal: { minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: spacing.xs, paddingVertical: 5, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 4, backgroundColor: colors.blueSoft },
   bookChartSignalCopy: { flex: 1, minWidth: 0 },
-  bookChartSignalType: { color: '#536d99', fontSize: 8, lineHeight: 12, fontWeight: '800' },
-  bookChartSignalTrend: { color: '#34755e' },
-  bookChartSignalMeta: { color: '#758279', fontSize: 8, lineHeight: 12, marginTop: 1 },
+  bookChartSignalType: { color: colors.blueMuted, fontSize: type.tiny, lineHeight: 12, fontWeight: '800' },
+  bookChartSignalTrend: { color: colors.brand },
+  bookChartSignalMeta: { color: colors.muted, fontSize: type.tiny, lineHeight: 12, marginTop: 1 },
   chartSourceLink: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  bookCard: { minHeight: 382, maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', backgroundColor: '#fffefa', borderWidth: 1, borderColor: '#eee9df', borderRadius: 22, overflow: 'hidden', shadowColor: '#263b30', shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
+  bookCard: { minHeight: 382, maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 22, overflow: 'hidden', shadowColor: colors.forest, shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
   bookCardMobile: { flexDirection: 'column', minHeight: 0 },
   coverFrame: { width: '37%', minHeight: 382, position: 'relative', overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   coverFrameMobile: { width: '100%', height: 250, minHeight: 250 },
   coverFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22, gap: 12 },
-  coverFallbackTitle: { color: '#fffaf0', fontSize: 24, fontWeight: '700', textAlign: 'center', lineHeight: 28 },
-  coverFallbackAuthor: { color: '#fffaf0', fontSize: 11, textAlign: 'center' },
+  coverFallbackTitle: { color: colors.white, fontSize: type.sectionTitle, fontWeight: '700', textAlign: 'center', lineHeight: 28 },
+  coverFallbackAuthor: { color: colors.white, fontSize: type.bodySmall, textAlign: 'center' },
   coverImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
   coverCaption: { position: 'absolute', bottom: 12, left: 12, backgroundColor: 'rgba(27,42,37,0.82)', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 3 },
-  coverCaptionText: { color: '#eff5ee', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
+  coverCaptionText: { color: colors.brandSoft, fontSize: type.tiny, fontWeight: '700', letterSpacing: 1 },
   bookInfo: { flex: 1, minWidth: 0, paddingHorizontal: 31, paddingTop: 30, paddingBottom: 19 },
-  bookInfoMobile: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 18 },
+  bookInfoMobile: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 18 },
   pillarTag: { alignSelf: 'flex-start', height: 24, flexDirection: 'row', alignItems: 'center', gap: 7, borderWidth: 1, borderRadius: 3, paddingHorizontal: 8 },
   pillarDot: { width: 6, height: 6, borderRadius: 3 },
-  pillarTagText: { color: '#58665d', fontSize: 8, fontWeight: '700', letterSpacing: 0.9 },
-  bookTitle: { color: '#25332d', fontSize: 29, lineHeight: 35, fontWeight: '700', marginTop: 15 },
-  bookAuthor: { color: '#65736a', fontSize: 13, marginTop: 7 },
-  authorDivider: { color: '#d7805b' },
-  infoRule: { height: 1, backgroundColor: '#e8e9e3', marginVertical: 22 },
-  noteLabel: { color: '#78887d', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
-  bookNote: { color: '#39473f', fontSize: 15, lineHeight: 23, marginTop: 9, maxWidth: 420 },
-  adaptationSection: { marginTop: 17, paddingTop: 11, borderTopWidth: 1, borderTopColor: '#e8e9e3' },
+  pillarTagText: { color: colors.body, fontSize: type.tiny, fontWeight: '700', letterSpacing: 0.9 },
+  bookTitle: { color: colors.inkStrong, fontSize: type.bookTitle, lineHeight: 35, fontWeight: '700', marginTop: 15 },
+  bookAuthor: { color: colors.secondary, fontSize: type.bodyMedium, marginTop: 7 },
+  authorDivider: { color: colors.warm },
+  infoRule: { height: 1, backgroundColor: colors.border, marginVertical: 22 },
+  noteLabel: { color: colors.muted, fontSize: type.label, fontWeight: '700', letterSpacing: 1.1 },
+  bookNote: { color: colors.body, fontSize: type.bodyLarge, lineHeight: 23, marginTop: 9, maxWidth: 420 },
+  adaptationSection: { marginTop: 17, paddingTop: 11, borderTopWidth: 1, borderTopColor: colors.border },
   adaptationHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   adaptationRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 4 },
   adaptationCopy: { flex: 1, minWidth: 0 },
-  adaptationTitle: { color: '#35433b', fontSize: 12, lineHeight: 17, fontWeight: '600' },
-  adaptationMeta: { color: '#78857d', fontSize: 9, lineHeight: 14, marginTop: 2 },
-  adaptationCast: { color: '#63736a', fontSize: 9, lineHeight: 14, marginTop: 3 },
-  adaptationEmpty: { color: '#879188', fontSize: 10, lineHeight: 15 },
+  adaptationTitle: { color: colors.body, fontSize: type.footnote, lineHeight: 17, fontWeight: '600' },
+  adaptationMeta: { color: colors.muted, fontSize: type.label, lineHeight: 14, marginTop: 2 },
+  adaptationCast: { color: colors.secondary, fontSize: type.label, lineHeight: 14, marginTop: 3 },
+  adaptationEmpty: { color: colors.muted, fontSize: type.caption, lineHeight: 15 },
   tmdbLink: { minHeight: 28, justifyContent: 'center', paddingHorizontal: 6 },
-  tmdbLinkText: { color: '#477d6c', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
-  tmdbAttribution: { color: '#9aa49c', fontSize: 7, lineHeight: 10, marginTop: 8 },
-  onRampSection: { marginTop: 20, paddingTop: 13, borderTopWidth: 1, borderTopColor: '#e8e9e3' },
-  onRampHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' },
-  onRampButton: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 9, borderRadius: 4, backgroundColor: '#e7f0e9' },
-  onRampButtonText: { color: '#2f725b', fontSize: 8, fontWeight: '800', letterSpacing: 0.45 },
-  onRampText: { color: '#39473f', fontSize: 13, lineHeight: 20, marginTop: 10 },
-  onRampError: { color: '#a9443d', fontSize: 11, lineHeight: 16, marginTop: 8 },
+  tmdbLinkText: { color: colors.brandMuted, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.4 },
+  tmdbAttribution: { color: colors.quiet, fontSize: type.micro, lineHeight: 10, marginTop: 8 },
+  onRampSection: { marginTop: spacing.lg, paddingTop: 13, borderTopWidth: 1, borderTopColor: colors.border },
+  onRampHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs, flexWrap: 'wrap' },
+  onRampButton: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 9, borderRadius: 4, backgroundColor: colors.brandSoft },
+  onRampButtonText: { color: colors.brandStrong, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.45 },
+  onRampText: { color: colors.body, fontSize: type.bodyMedium, lineHeight: 20, marginTop: 10 },
+  onRampError: { color: colors.danger, fontSize: type.bodySmall, lineHeight: 16, marginTop: 8 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: 17 },
-  catalogId: { color: '#a0a9a2', fontSize: 9, fontWeight: '700', letterSpacing: 0.7 },
+  catalogId: { color: colors.quiet, fontSize: type.label, fontWeight: '700', letterSpacing: 0.7 },
   actionRow: { maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 15, gap: 7 },
   actionRowMobile: { flexWrap: 'wrap' },
-  actionButton: { flex: 1, minWidth: 0, minHeight: 65, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 10, borderRadius: 16, borderWidth: 1, borderColor: '#eee9df', backgroundColor: '#fffefa' },
+  actionButton: { flex: 1, minWidth: 0, minHeight: 65, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 10, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   actionButtonMobile: { flexBasis: '31%', minHeight: 88, flexDirection: 'column', justifyContent: 'center', gap: 7, paddingHorizontal: 4 },
   actionDisabled: { opacity: 0.55 },
-  actionPressed: { backgroundColor: '#e8eee8', transform: [{ scale: 0.98 }] },
-  actionIcon: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  actionLabel: { color: '#34433b', fontSize: 11, fontWeight: '600', flexShrink: 1 },
-  actionLabelMobile: { fontSize: 11, textAlign: 'center' },
-  actionHint: { color: '#89958c', fontSize: 7, fontWeight: '700', letterSpacing: 0.4 },
-  emptyState: { maxWidth: 860, width: '100%', minHeight: 300, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', padding: 30, borderWidth: 1, borderColor: '#e9e9df', borderRadius: 20, backgroundColor: '#fffefa' },
-  emptyIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#e3efe6', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
-  emptyTitle: { color: '#2c3c33', fontSize: 19, fontWeight: '600', textAlign: 'center' },
-  emptyCopy: { color: '#718077', fontSize: 13, lineHeight: 20, textAlign: 'center', maxWidth: 330, marginTop: 7 },
-  resetButton: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 42, borderRadius: 5, backgroundColor: '#e2efe5', paddingHorizontal: 14, marginTop: 17 },
-  resetButtonText: { color: '#285f4e', fontSize: 12, fontWeight: '700' },
+  actionPressed: { backgroundColor: colors.brandSoft, transform: [{ scale: 0.98 }] },
+  actionIcon: { width: 38, height: 38, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },
+  actionLabel: { color: colors.body, fontSize: type.bodySmall, fontWeight: '600', flexShrink: 1 },
+  actionLabelMobile: { fontSize: type.bodySmall, textAlign: 'center' },
+  actionHint: { color: colors.muted, fontSize: type.micro, fontWeight: '700', letterSpacing: 0.4 },
+  emptyState: { maxWidth: 860, width: '100%', minHeight: 300, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', padding: 30, borderWidth: 1, borderColor: colors.border, borderRadius: radii.lg, backgroundColor: colors.surface },
+  emptyIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  emptyTitle: { color: colors.inkStrong, fontSize: type.heading, fontWeight: '600', textAlign: 'center' },
+  emptyCopy: { color: colors.secondary, fontSize: type.bodyMedium, lineHeight: 20, textAlign: 'center', maxWidth: 330, marginTop: 7 },
+  resetButton: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 42, borderRadius: 5, backgroundColor: colors.brandSoft, paddingHorizontal: 14, marginTop: 17 },
+  resetButtonText: { color: colors.brandDeep, fontSize: type.footnote, fontWeight: '700' },
   shelfView: { minHeight: 350 },
   shelfList: { gap: 8 },
-  shelfRow: { minHeight: 78, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#eee9df', borderRadius: 16, backgroundColor: '#fffefa', paddingHorizontal: 12, gap: 14 },
+  shelfRow: { minHeight: 78, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: 16, backgroundColor: colors.surface, paddingHorizontal: spacing.sm, gap: 14 },
   snoozedShelfRow: { gap: 8 },
   returnShelfRow: { gap: 8 },
-  shelfIndex: { color: '#9ca69e', fontSize: 10, fontWeight: '700', width: 22 },
+  shelfIndex: { color: colors.quiet, fontSize: type.caption, fontWeight: '700', width: 22 },
   shelfSwatch: { width: 4, height: 42, borderRadius: 2 },
   shelfText: { flex: 1 },
-  shelfTitle: { color: '#29382f', fontSize: 15, fontWeight: '600' },
-  shelfAuthor: { color: '#78857d', fontSize: 11, marginTop: 4 },
-  shelfPillar: { color: '#819087', fontSize: 8, fontWeight: '700', letterSpacing: 0.8 },
-  archivedLabel: { color: '#879188', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
-  shelfReturn: { color: '#8a6e46', fontSize: 7 },
-  wakeButton: { minWidth: 54, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6, borderRadius: 4, backgroundColor: '#f0ebe1' },
-  wakeButtonText: { color: '#765d3b', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
-  returnBookButton: { minWidth: 58, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6, borderRadius: 4, backgroundColor: '#e5f1e8' },
-  returnBookButtonText: { color: '#2f725b', fontSize: 8, fontWeight: '800', letterSpacing: 0.4 },
-  quipToggle: { minWidth: 82, height: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 7, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, backgroundColor: '#f5f6f2' },
-  quipToggleEnabled: { borderColor: '#b9d1c4', backgroundColor: '#e7f0e9' },
-  quipToggleLabel: { color: '#718077', fontSize: 8, fontWeight: '800', letterSpacing: 0.35 },
-  quipToggleLabelEnabled: { color: '#34755e' },
-  pageFooter: { borderTopWidth: 1, borderTopColor: '#e8e5dc', paddingTop: 14, marginTop: 28, flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
-  footerCopy: { color: '#9aa49c', fontSize: 8, fontWeight: '700', letterSpacing: 0.8 },
+  shelfTitle: { color: colors.ink, fontSize: type.bodyLarge, fontWeight: '600' },
+  shelfAuthor: { color: colors.muted, fontSize: type.bodySmall, marginTop: 4 },
+  shelfPillar: { color: colors.muted, fontSize: type.tiny, fontWeight: '700', letterSpacing: 0.8 },
+  archivedLabel: { color: colors.muted, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.5 },
+  shelfReturn: { color: colors.gold, fontSize: 7 },
+  wakeButton: { minWidth: 54, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: 6, borderRadius: 4, backgroundColor: colors.goldSoft },
+  wakeButtonText: { color: colors.goldDark, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.4 },
+  returnBookButton: { minWidth: 58, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: 6, borderRadius: 4, backgroundColor: colors.brandSoft },
+  returnBookButtonText: { color: colors.brandStrong, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.4 },
+  quipToggle: { minWidth: 82, height: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 7, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 4, backgroundColor: colors.surfaceMuted },
+  quipToggleEnabled: { borderColor: colors.brandSoft, backgroundColor: colors.brandSoft },
+  quipToggleLabel: { color: colors.secondary, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.35 },
+  quipToggleLabelEnabled: { color: colors.brand },
+  pageFooter: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 14, marginTop: 28, flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  footerCopy: { color: colors.quiet, fontSize: type.tiny, fontWeight: '700', letterSpacing: 0.8 },
 });

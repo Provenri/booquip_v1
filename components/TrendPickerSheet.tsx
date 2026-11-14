@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
+import { FlashList } from '@shopify/flash-list';
 import { TrendingUp, X } from 'lucide-react-native';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Modal, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Pressable from '@/components/MotionPressable';
 import { loadQuipTrendTopics, type QuipTrendTopic } from '@/lib/quipTrends';
+import { colors, radii, spacing, type } from '@/constants/theme';
 
 type TrendPickerSheetProps = {
   visible: boolean;
@@ -11,6 +15,7 @@ type TrendPickerSheetProps = {
 
 export default function TrendPickerSheet({ visible, onClose, onSelect }: TrendPickerSheetProps) {
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isCompact = width < 700;
   const [trendTopics, setTrendTopics] = useState<QuipTrendTopic[]>([]);
   const [topicCountry, setTopicCountry] = useState<'ALL' | 'US' | 'UK'>('ALL');
@@ -47,11 +52,11 @@ export default function TrendPickerSheet({ visible, onClose, onSelect }: TrendPi
     <Modal visible={visible} transparent animationType={isCompact ? 'slide' : 'fade'} onRequestClose={onClose}>
       <View style={[styles.overlay, isCompact && styles.overlayMobile]}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close trend picker" onPress={onClose} style={styles.backdrop} />
-        <View accessibilityViewIsModal style={[styles.sheet, isCompact && styles.sheetMobile]}>
+        <View accessibilityViewIsModal style={[styles.sheet, isCompact && styles.sheetMobile, isCompact && { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
           <View style={styles.header}>
-            <View style={styles.headerIcon}><TrendingUp color="#2e6d58" size={18} /></View>
+            <View style={styles.headerIcon}><TrendingUp color={colors.brand} size={18} /></View>
             <Pressable accessibilityRole="button" accessibilityLabel="Close trend picker" onPress={onClose} style={styles.closeButton}>
-              <X color="#65736a" size={18} />
+              <X color={colors.secondary} size={18} />
             </Pressable>
           </View>
 
@@ -80,10 +85,13 @@ export default function TrendPickerSheet({ visible, onClose, onSelect }: TrendPi
           ) : topicsStatus === 'error' ? (
             <Text style={styles.hint}>Trend suggestions are unavailable right now. Close this and write the topic instead.</Text>
           ) : displayedTopics.length > 0 ? (
-            <ScrollView style={styles.topicScroll} contentContainerStyle={styles.topicList}>
-              {displayedTopics.map((topic) => (
+            <FlashList
+              style={styles.topicScroll}
+              contentContainerStyle={styles.topicList}
+              data={displayedTopics}
+              keyExtractor={(topic) => topic.id}
+              renderItem={({ item: topic }) => (
                 <Pressable
-                  key={topic.id}
                   accessibilityRole="button"
                   accessibilityLabel={`Use ${topic.countryCode} trend: ${topic.topic}`}
                   onPress={() => onSelect(topic)}
@@ -98,9 +106,9 @@ export default function TrendPickerSheet({ visible, onClose, onSelect }: TrendPi
                   </View>
                   {topic.summary ? <Text style={styles.topicSummary}>{topic.summary}</Text> : null}
                 </Pressable>
-              ))}
-              <Text style={styles.topicAttribution}>Google Trends · recent searches</Text>
-            </ScrollView>
+              )}
+              ListFooterComponent={<Text style={styles.topicAttribution}>Google Trends · recent searches</Text>}
+            />
           ) : (
             <Text style={styles.hint}>No recent topics for this filter.</Text>
           )}
@@ -114,29 +122,29 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(24, 39, 33, 0.42)' },
   overlayMobile: { justifyContent: 'flex-end', paddingHorizontal: 0 },
   backdrop: { ...StyleSheet.absoluteFillObject },
-  sheet: { width: '100%', maxWidth: 520, maxHeight: '88%', borderRadius: 20, borderWidth: 1, borderColor: '#eee9df', backgroundColor: '#fffefa', padding: 22, shadowColor: '#13241c', shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 8 },
+  sheet: { width: '100%', maxWidth: 520, maxHeight: '88%', borderRadius: radii.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: spacing.lg, shadowColor: colors.shadow, shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 8 },
   sheetMobile: { maxWidth: '100%', maxHeight: '92%', marginTop: 'auto', padding: 20, paddingBottom: 28, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderTopLeftRadius: 26, borderTopRightRadius: 26 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  headerIcon: { width: 42, height: 42, borderRadius: 16, backgroundColor: '#e7f1e6', alignItems: 'center', justifyContent: 'center' },
-  closeButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21, backgroundColor: '#f1f1ea' },
-  eyebrow: { color: '#6f8175', fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
-  title: { color: '#29382f', fontSize: 28, lineHeight: 34, fontWeight: '700', marginTop: 6 },
-  description: { color: '#68766d', fontSize: 14, lineHeight: 21, marginTop: 7 },
-  countryFilter: { flexDirection: 'row', alignSelf: 'flex-start', gap: 4, padding: 4, marginTop: 14, borderWidth: 1, borderColor: '#e5e4d9', borderRadius: 14, backgroundColor: '#f5f4ed' },
+  headerIcon: { width: 42, height: 42, borderRadius: radii.md, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' },
+  closeButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21, backgroundColor: colors.surfaceMuted },
+  eyebrow: { color: colors.secondary, fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
+  title: { color: colors.ink, fontSize: type.title, lineHeight: 34, fontWeight: '700', marginTop: 6 },
+  description: { color: colors.secondary, fontSize: type.body, lineHeight: 21, marginTop: 7 },
+  countryFilter: { flexDirection: 'row', alignSelf: 'flex-start', gap: spacing.xxs, padding: spacing.xxs, marginTop: 14, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.md, backgroundColor: colors.surfaceMuted },
   countryTab: { minWidth: 58, minHeight: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, borderRadius: 11 },
-  countryTabSelected: { backgroundColor: '#2f725b' },
-  countryTabLabel: { color: '#526259', fontSize: 11, fontWeight: '700' },
-  countryTabLabelSelected: { color: '#fffaf6' },
-  hint: { color: '#879188', fontSize: 10, marginTop: 10 },
+  countryTabSelected: { backgroundColor: colors.brandStrong },
+  countryTabLabel: { color: colors.secondary, fontSize: 11, fontWeight: '700' },
+  countryTabLabelSelected: { color: colors.brandContrast },
+  hint: { color: colors.muted, fontSize: 10, marginTop: 10 },
   topicScroll: { marginTop: 10 },
   topicList: { gap: 8, paddingTop: 6, paddingBottom: 12 },
-  topicCard: { minHeight: 66, justifyContent: 'center', paddingHorizontal: 13, paddingVertical: 11, borderWidth: 1, borderColor: '#eee9df', borderRadius: 14, backgroundColor: '#fffefa' },
+  topicCard: { minHeight: 66, justifyContent: 'center', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, backgroundColor: colors.surface },
   topicRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  topicText: { flex: 1, color: '#35433b', fontSize: 14, lineHeight: 19, fontWeight: '700' },
+  topicText: { flex: 1, color: colors.body, fontSize: type.body, lineHeight: 19, fontWeight: '700' },
   topicBadges: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  topicTraffic: { color: '#89958c', fontSize: 8, lineHeight: 12 },
-  topicCountry: { minWidth: 27, color: '#78887d', fontSize: 8, fontWeight: '800', textAlign: 'center' },
-  topicSummary: { color: '#68766d', fontSize: 12, lineHeight: 17, marginTop: 5 },
-  topicAttribution: { color: '#879188', fontSize: 10, marginTop: 8, textAlign: 'center' },
+  topicTraffic: { color: colors.muted, fontSize: 8, lineHeight: 12 },
+  topicCountry: { minWidth: 27, color: colors.muted, fontSize: 8, fontWeight: '800', textAlign: 'center' },
+  topicSummary: { color: colors.secondary, fontSize: type.footnote, lineHeight: 17, marginTop: 5 },
+  topicAttribution: { color: colors.muted, fontSize: 10, marginTop: 8, textAlign: 'center' },
   pressed: { opacity: 0.85 },
 });
