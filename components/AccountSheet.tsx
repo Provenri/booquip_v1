@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Mail, X } from 'lucide-react-native';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { isSupabaseConfigured } from '@/lib/supabase';
 
 type AccountSheetProps = {
@@ -27,6 +27,8 @@ function getEmailErrorMessage(error: unknown, fallback: string) {
 }
 
 export default function AccountSheet({ visible, email, pendingEmail, isAnonymous, sessionReady, syncError, onClose, onLinkEmail, onResendEmail, onSignIn, onSignOut, onDeleteAccount, onRetry }: AccountSheetProps) {
+  const { width } = useWindowDimensions();
+  const isCompact = width < 700;
   const [address, setAddress] = useState('');
   const [authMode, setAuthMode] = useState<'link' | 'signin'>('link');
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -132,10 +134,10 @@ export default function AccountSheet({ visible, email, pendingEmail, isAnonymous
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
+    <Modal visible={visible} transparent animationType={isCompact ? 'slide' : 'fade'} onRequestClose={onClose}>
+      <View style={[styles.overlay, isCompact && styles.overlayMobile]}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close account panel" onPress={onClose} style={styles.backdrop} />
-        <View accessibilityViewIsModal style={styles.sheet}>
+        <View accessibilityViewIsModal style={[styles.sheet, isCompact && styles.sheetMobile]}>
           <View style={styles.header}>
             <View style={styles.headerIcon}><Mail color="#2e6d58" size={18} /></View>
             <Pressable accessibilityRole="button" accessibilityLabel="Close account panel" disabled={isDeleting} onPress={onClose} style={styles.closeButton}>
@@ -143,6 +145,7 @@ export default function AccountSheet({ visible, email, pendingEmail, isAnonymous
             </Pressable>
           </View>
 
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
           {!sessionReady ? (
             <>
               <Text style={styles.eyebrow}>GUEST SESSION</Text>
@@ -307,6 +310,7 @@ export default function AccountSheet({ visible, email, pendingEmail, isAnonymous
               {errorMessage ? <Text accessibilityRole="alert" style={styles.error}>{errorMessage}</Text> : null}
             </>
           )}
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -315,20 +319,23 @@ export default function AccountSheet({ visible, email, pendingEmail, isAnonymous
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(24, 39, 33, 0.42)' },
+  overlayMobile: { justifyContent: 'flex-end', paddingHorizontal: 0 },
   backdrop: { ...StyleSheet.absoluteFillObject },
-  sheet: { width: '100%', maxWidth: 430, borderRadius: 7, borderWidth: 1, borderColor: '#dde4dc', backgroundColor: '#fbfcf8', padding: 26, shadowColor: '#13241c', shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 8 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 },
-  headerIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#e5f1e8', alignItems: 'center', justifyContent: 'center' },
-  closeButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  sheet: { width: '100%', maxWidth: 430, maxHeight: '90%', borderRadius: 20, borderWidth: 1, borderColor: '#eee9df', backgroundColor: '#fffefa', padding: 24, shadowColor: '#13241c', shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 8 },
+  sheetMobile: { maxWidth: '100%', maxHeight: '92%', marginTop: 'auto', padding: 20, paddingBottom: 12, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderTopLeftRadius: 26, borderTopRightRadius: 26 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  headerIcon: { width: 42, height: 42, borderRadius: 16, backgroundColor: '#e7f1e6', alignItems: 'center', justifyContent: 'center' },
+  closeButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21, backgroundColor: '#f1f1ea' },
+  content: { paddingBottom: 18 },
   eyebrow: { color: '#6f8175', fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
-  title: { color: '#29382f', fontSize: 25, lineHeight: 31, fontWeight: '600', marginTop: 6 },
-  description: { color: '#68766d', fontSize: 13, lineHeight: 20, marginTop: 8 },
-  input: { height: 48, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, paddingHorizontal: 13, marginTop: 20, color: '#29382f', backgroundColor: '#fff', fontSize: 14 },
-  submitButton: { minHeight: 46, borderRadius: 4, marginTop: 10, backgroundColor: '#2f725b', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  title: { color: '#29382f', fontSize: 28, lineHeight: 34, fontWeight: '700', marginTop: 6 },
+  description: { color: '#68766d', fontSize: 14, lineHeight: 21, marginTop: 8 },
+  input: { height: 52, borderWidth: 1, borderColor: '#e5e4d9', borderRadius: 14, paddingHorizontal: 14, marginTop: 18, color: '#29382f', backgroundColor: '#fff', fontSize: 15 },
+  submitButton: { minHeight: 50, borderRadius: 15, marginTop: 10, backgroundColor: '#2f725b', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   submitDisabled: { opacity: 0.48 },
   submitPressed: { backgroundColor: '#285e4c' },
-  submitLabel: { color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.75 },
-  notice: { marginTop: 13, padding: 13, borderRadius: 4, backgroundColor: '#e8f1e8' },
+  submitLabel: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  notice: { marginTop: 13, padding: 14, borderRadius: 14, backgroundColor: '#edf3e9' },
   noticeTitle: { color: '#315f4c', fontSize: 12, fontWeight: '700' },
   noticeBody: { color: '#506d5c', fontSize: 12, lineHeight: 18, marginTop: 4 },
   resendButton: { alignSelf: 'flex-start', marginTop: 9, paddingVertical: 5 },
@@ -336,7 +343,7 @@ const styles = StyleSheet.create({
   error: { color: '#a9443d', fontSize: 12, lineHeight: 18, marginTop: 10 },
   footnote: { color: '#879188', fontSize: 10, lineHeight: 15, marginTop: 13 },
   modeSwitch: { alignSelf: 'flex-start', marginTop: 16, paddingVertical: 5 },
-  modeSwitchLabel: { color: '#2f725b', fontSize: 11, fontWeight: '700' },
+  modeSwitchLabel: { color: '#2f725b', fontSize: 13, fontWeight: '700' },
   signOutButton: { alignSelf: 'flex-start', marginTop: 18, paddingVertical: 8, paddingHorizontal: 2 },
   signOutLabel: { color: '#a34c43', fontSize: 9, fontWeight: '800', letterSpacing: 0.7 },
   deleteAccountButton: { alignSelf: 'flex-start', marginTop: 8, paddingVertical: 8, paddingHorizontal: 2 },

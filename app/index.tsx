@@ -23,6 +23,7 @@ import {
   Check,
   Clock3,
   ExternalLink,
+  House,
   Tv,
   MessageCircle,
   Search,
@@ -80,6 +81,30 @@ function NavItem({
       <Icon color={active ? '#243b35' : '#9da9a1'} size={18} strokeWidth={1.8} />
       <Text style={[styles.navLabel, compact && styles.navLabelCompact, active && styles.navLabelActive]}>{label}</Text>
       {count !== undefined && <Text style={[styles.navCount, active && styles.navLabelActive]}>{count}</Text>}
+    </Pressable>
+  );
+}
+
+function BottomTab({
+  label,
+  active,
+  onPress,
+  icon: Icon,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  icon: typeof BookOpen;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={styles.bottomTab}
+    >
+      <Icon color={active ? '#245b49' : '#87938b'} size={21} strokeWidth={active ? 2.2 : 1.8} />
+      <Text style={[styles.bottomTabLabel, active && styles.bottomTabLabelActive]}>{label}</Text>
     </Pressable>
   );
 }
@@ -562,12 +587,12 @@ export default function DiscoverScreen() {
       : frozenBooks;
   const screenTitle = screen === 'discover' ? 'Find your next read' : screen === 'tbr' ? 'Your reading list' : screen === 'read' ? 'Books you’ve read' : 'Snoozed for later';
   const syncLabel = syncStatus === 'connected'
-    ? isAnonymous ? 'SHELF SYNC ON · GUEST' : `SHELF SYNC ON · ${accountEmail ?? 'LINKED ACCOUNT'}`
+    ? isAnonymous ? 'Synced as guest' : `Synced to ${accountEmail ?? 'your account'}`
     : syncStatus === 'loading'
-      ? 'CONNECTING TO YOUR SHELF'
+      ? 'Connecting to your shelf…'
       : syncStatus === 'error'
-        ? syncMessage.toUpperCase()
-        : 'LOCAL PREVIEW · SWIPES ARE NOT SAVED';
+        ? `Couldn’t sync: ${syncMessage}`
+        : 'Preview mode · changes stay on this device';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -617,17 +642,9 @@ export default function DiscoverScreen() {
               style={[styles.accountButton, syncStatus === 'loading' && styles.navItemDisabled]}
             >
               <UserRound color="#547465" size={16} />
-              <Text style={styles.accountButtonText}>{isAnonymous ? 'LINK SHELF' : 'ACCOUNT'}</Text>
+              <Text style={styles.accountButtonText}>{isAnonymous ? 'Link shelf' : 'Account'}</Text>
             </Pressable>
           </View>
-
-          {section !== 'home' && (
-            <View style={styles.mobileNav}>
-              <NavItem compact label="Book" active={section === 'book'} onPress={() => { setSection('book'); setScreen('discover'); }} icon={BookOpen} />
-              <NavItem compact label="Quip" active={section === 'quip'} onPress={() => setSection('quip')} icon={MessageCircle} />
-              <NavItem compact label="Your Library" active={false} onPress={() => setSection('home')} icon={ArrowLeft} />
-            </View>
-          )}
 
           {section === 'book' && !isWide && (
             <View style={[styles.mobileNav, styles.bookShelfNav]}>
@@ -644,11 +661,11 @@ export default function DiscoverScreen() {
                 <Text style={styles.eyebrow}>{section === 'home' ? 'YOUR LIBRARY' : section === 'book' ? 'BOOK' : 'QUIP'}</Text>
                 <Text style={styles.pageTitle}>{section === 'home' ? 'Your Library' : section === 'book' ? screenTitle : 'Your Quip library'}</Text>
               </View>
-              <Text style={styles.issueMark}>NO. 001 <Text style={styles.issueDot}>/</Text> 2026</Text>
+              {isWide && <Text style={styles.issueMark}>FIELD NOTES <Text style={styles.issueDot}>·</Text> 2026</Text>}
             </View>
             <View style={styles.syncStatusRow}>
               <View style={[styles.syncDot, syncStatus === 'connected' && styles.syncDotConnected, syncStatus === 'error' && styles.syncDotError]} />
-              <Text style={styles.syncStatusText}>{syncLabel}</Text>
+              <Text numberOfLines={1} style={styles.syncStatusText}>{syncLabel}</Text>
             </View>
 
             {section === 'home' ? (
@@ -673,10 +690,6 @@ export default function DiscoverScreen() {
                   </View>
                   <ArrowRight color="#728077" size={18} />
                 </Pressable>
-                <View style={styles.hubStatus}>
-                  <View style={[styles.syncDot, syncStatus === 'connected' && styles.syncDotConnected, syncStatus === 'error' && styles.syncDotError]} />
-                  <Text style={styles.syncStatusText}>{syncLabel}</Text>
-                </View>
               </View>
             ) : section === 'quip' ? (
               <View style={styles.quipSection}>
@@ -804,13 +817,13 @@ export default function DiscoverScreen() {
                   </Pressable>
                 </View>
 
-                <View style={styles.categoryRow}>
+                <View style={[styles.categoryRow, !isWide && styles.categoryRowMobile]}>
                   {pillars.map((pillar) => {
                     const count = availableBooks.filter((availableBook) => availableBook.pillar === pillar.id).length;
                     const selected = selectedPillar === pillar.id;
                     return <Pressable key={pillar.id} accessibilityRole="button" accessibilityState={{ selected }}
                       disabled={syncStatus === 'loading'} onPress={() => selectPillar(pillar.id)}
-                      style={({ pressed }) => [styles.categoryButton, selected && styles.categoryButtonSelected, syncStatus === 'loading' && styles.actionDisabled, pressed && styles.actionPressed]}>
+                      style={({ pressed }) => [styles.categoryButton, !isWide && styles.categoryButtonMobile, selected && styles.categoryButtonSelected, syncStatus === 'loading' && styles.actionDisabled, pressed && styles.actionPressed]}>
                       <View style={[styles.categoryDot, { backgroundColor: pillar.color }]} />
                       <View style={styles.categoryButtonCopy}>
                         <Text style={[styles.categoryButtonTitle, selected && styles.categoryButtonTitleSelected]}>{pillar.label}</Text>
@@ -836,6 +849,7 @@ export default function DiscoverScreen() {
                     {...panResponder.panHandlers}
                     style={[
                       styles.bookCard,
+                      !isWide && styles.bookCardMobile,
                       {
                         transform: [
                           ...drag.getTranslateTransform(),
@@ -844,7 +858,7 @@ export default function DiscoverScreen() {
                       },
                     ]}
                   >
-                    <View style={[styles.coverFrame, { backgroundColor: book.color }]}>
+                    <View style={[styles.coverFrame, !isWide && styles.coverFrameMobile, { backgroundColor: book.color }]}>
                       <View style={styles.coverFallback}>
                         <BookOpen color="#fffaf0" size={32} strokeWidth={1.5} />
                         <Text style={styles.coverFallbackTitle}>{book.title}</Text>
@@ -861,7 +875,7 @@ export default function DiscoverScreen() {
                       )}
                       <View style={styles.coverCaption}><Text style={styles.coverCaptionText}>A BOOQUIP PICK</Text></View>
                     </View>
-                    <View style={styles.bookInfo}>
+                    <View style={[styles.bookInfo, !isWide && styles.bookInfoMobile]}>
                       <View style={[styles.pillarTag, { borderColor: currentPillar?.color ?? '#557b6f' }]}>
                         <View style={[styles.pillarDot, { backgroundColor: currentPillar?.color ?? '#557b6f' }]} />
                         <Text style={styles.pillarTagText}>{currentPillar?.label.toUpperCase()}</Text>
@@ -1077,11 +1091,25 @@ export default function DiscoverScreen() {
               </View>
             )}
 
-            <View style={styles.pageFooter}>
-              <Text style={styles.footerCopy}>A GOOD BOOK IS A CHANGE OF PERSPECTIVE.</Text>
-              <Text style={styles.footerCopy}>BOOQUIP <Text style={styles.issueDot}>·</Text> FIELD TEST</Text>
-            </View>
+            {isWide && (
+              <View style={styles.pageFooter}>
+                <Text style={styles.footerCopy}>A GOOD BOOK IS A CHANGE OF PERSPECTIVE.</Text>
+                <Text style={styles.footerCopy}>BOOQUIP <Text style={styles.issueDot}>·</Text> FIELD NOTES</Text>
+              </View>
+            )}
           </ScrollView>
+          {!isWide && (
+            <View style={styles.bottomBar}>
+              <BottomTab label="Home" active={section === 'home'} onPress={() => setSection('home')} icon={House} />
+              <BottomTab
+                label="Books"
+                active={section === 'book'}
+                onPress={() => { setSection('book'); setScreen('discover'); }}
+                icon={BookOpen}
+              />
+              <BottomTab label="Quip" active={section === 'quip'} onPress={() => setSection('quip')} icon={MessageCircle} />
+            </View>
+          )}
         </View>
       </View>
       <AccountSheet
@@ -1113,84 +1141,89 @@ export default function DiscoverScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f1f3ef' },
-  appShell: { flex: 1, flexDirection: 'row', backgroundColor: '#f1f3ef' },
+  safeArea: { flex: 1, backgroundColor: '#f7f5ef' },
+  appShell: { flex: 1, flexDirection: 'row', backgroundColor: '#f7f5ef' },
   sidebar: { width: 238, backgroundColor: '#1e302d', paddingHorizontal: 24, paddingTop: 32, paddingBottom: 22 },
   brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brandMark: { width: 32, height: 32, borderRadius: 9, backgroundColor: '#8dd8b1', alignItems: 'center', justifyContent: 'center' },
-  brandName: { color: '#f6f7f3', fontSize: 20, fontWeight: '700', letterSpacing: 0 },
+  brandMark: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#9ad9b7', alignItems: 'center', justifyContent: 'center' },
+  brandName: { color: '#f6f7f3', fontSize: 21, fontWeight: '700', letterSpacing: -0.5 },
   sidebarEyebrow: { color: '#8a9991', fontSize: 10, fontWeight: '700', letterSpacing: 1.4, marginTop: 56, marginBottom: 15 },
-  navItem: { height: 46, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, borderRadius: 6, marginBottom: 5 },
-  navItemCompact: { flex: 1, justifyContent: 'center', gap: 4, paddingHorizontal: 2, marginBottom: 0 },
-  navItemActive: { backgroundColor: '#d8eee0' },
+  navItem: { height: 48, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, borderRadius: 14, marginBottom: 5 },
+  navItemCompact: { flex: 1, justifyContent: 'center', gap: 5, paddingHorizontal: 4, marginBottom: 0, borderRadius: 14 },
+  navItemActive: { backgroundColor: '#e1efe4' },
   navItemDisabled: { opacity: 0.5 },
   navLabel: { flex: 1, color: '#bdc8c0', fontSize: 13, fontWeight: '500' },
-  navLabelCompact: { flex: 0, fontSize: 9 },
+  navLabelCompact: { flex: 0, fontSize: 10 },
   navLabelActive: { color: '#243b35', fontWeight: '700' },
   navCount: { color: '#9eaaa3', fontSize: 12, fontVariant: ['tabular-nums'] },
   sidebarFooter: { marginTop: 'auto', borderTopWidth: 1, borderTopColor: '#3a4b46', paddingTop: 17 },
   sidebarFooterLabel: { color: '#8a9991', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
   sidebarFooterText: { color: '#d7e0da', fontSize: 12, lineHeight: 18, marginTop: 8, maxWidth: 170 },
   mainArea: { flex: 1, minWidth: 0 },
-  mobileHeader: { minHeight: 58, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: '#dfe4de' },
+  mobileHeader: { minHeight: 66, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, backgroundColor: '#fbfaf6' },
   mobileEdition: { color: '#728077', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
-  accountButton: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 8, borderRadius: 4, backgroundColor: '#e7efe8' },
-  accountButtonText: { color: '#426450', fontSize: 8, fontWeight: '800', letterSpacing: 0.6 },
-  mobileNav: { flexDirection: 'row', paddingHorizontal: 14, paddingTop: 7, borderBottomWidth: 1, borderBottomColor: '#dfe4de' },
-  bookShelfNav: { backgroundColor: '#f7f8f4' },
-  hubSections: { maxWidth: 860, width: '100%', alignSelf: 'center', borderTopWidth: 1, borderTopColor: '#dfe4dc' },
-  hubSection: { minHeight: 140, flexDirection: 'row', alignItems: 'center', gap: 18, paddingHorizontal: 14, paddingVertical: 22, borderBottomWidth: 1, borderBottomColor: '#dfe4dc' },
-  hubSectionPressed: { backgroundColor: '#eaf0e9' },
-  hubSectionIcon: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: '#e5f1e8' },
+  accountButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 13, borderRadius: 22, backgroundColor: '#edf2eb' },
+  accountButtonText: { color: '#426450', fontSize: 10, fontWeight: '700' },
+  mobileNav: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#f7f5ef' },
+  bookShelfNav: { borderBottomWidth: 1, borderBottomColor: '#eeeae1' },
+  bottomBar: { minHeight: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 14, borderTopWidth: 1, borderTopColor: '#ebe8df', backgroundColor: '#fffefa' },
+  bottomTab: { minWidth: 78, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 4, borderRadius: 15 },
+  bottomTabLabel: { color: '#87938b', fontSize: 10, fontWeight: '600' },
+  bottomTabLabelActive: { color: '#245b49', fontWeight: '700' },
+  hubSections: { maxWidth: 860, width: '100%', alignSelf: 'center', gap: 14 },
+  hubSection: { minHeight: 132, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 18, paddingVertical: 20, borderWidth: 1, borderColor: '#eee9df', borderRadius: 22, backgroundColor: '#fffefa', shadowColor: '#314b3e', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 1 },
+  hubSectionPressed: { backgroundColor: '#f2f5ee', transform: [{ scale: 0.99 }] },
+  hubSectionIcon: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: '#e7f1e6' },
   hubSectionCopy: { flex: 1, minWidth: 0 },
-  hubSectionEyebrow: { color: '#728077', fontSize: 9, fontWeight: '700' },
-  hubSectionTitle: { color: '#29382f', fontSize: 22, lineHeight: 28, fontWeight: '600', marginTop: 3 },
-  hubSectionDescription: { color: '#68766d', fontSize: 12, lineHeight: 18, marginTop: 4, maxWidth: 450 },
-  hubStatus: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 17 },
-  quipSection: { maxWidth: 860, width: '100%', alignSelf: 'center', paddingVertical: 28, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#dfe4dc' },
+  hubSectionEyebrow: { color: '#728077', fontSize: 10, fontWeight: '700' },
+  hubSectionTitle: { color: '#29382f', fontSize: 24, lineHeight: 30, fontWeight: '700', marginTop: 4 },
+  hubSectionDescription: { color: '#68766d', fontSize: 13, lineHeight: 19, marginTop: 5, maxWidth: 450 },
+  quipSection: { maxWidth: 860, width: '100%', alignSelf: 'center', padding: 20, borderWidth: 1, borderColor: '#eee9df', borderRadius: 22, backgroundColor: '#fffefa' },
   quipHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 22 },
   quipIntro: { flex: 1, minWidth: 220 },
-  quipCount: { color: '#688074', fontSize: 9, fontWeight: '700' },
-  quipDescription: { maxWidth: 470, color: '#34433b', fontSize: 18, lineHeight: 27, marginTop: 10, marginBottom: 20 },
-  quipButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, borderRadius: 4, backgroundColor: '#34755e' },
-  quipButtonText: { color: '#fffaf6', fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
-  quipEmptyState: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 14, padding: 18, borderWidth: 1, borderColor: '#dfe4dc', borderStyle: 'dashed', borderRadius: 5, backgroundColor: '#f8f9f6' },
+  quipCount: { color: '#688074', fontSize: 11, fontWeight: '700' },
+  quipDescription: { maxWidth: 470, color: '#34433b', fontSize: 16, lineHeight: 24, marginTop: 8, marginBottom: 14 },
+  quipButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, borderRadius: 16, backgroundColor: '#2f725b' },
+  quipButtonText: { color: '#fffaf6', fontSize: 11, fontWeight: '700' },
+  quipEmptyState: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 14, padding: 18, borderWidth: 1, borderColor: '#e9e9df', borderRadius: 18, backgroundColor: '#f8f8f2' },
   quipEmptyCopy: { flex: 1, minWidth: 200 },
-  quipShelf: { borderTopWidth: 1, borderTopColor: '#dfe4dc' },
+  quipShelf: { borderTopWidth: 1, borderTopColor: '#eeeae1', paddingTop: 8 },
   quipShelfHeading: { minHeight: 43, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  quipBookRow: { minHeight: 78, flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 9, borderTopWidth: 1, borderTopColor: '#e5e9e3' },
-  quipBookCover: { width: 42, height: 58, alignItems: 'center', justifyContent: 'center', borderRadius: 3 },
+  quipBookRow: { minHeight: 78, flexDirection: 'row', alignItems: 'center', gap: 13, marginTop: 8, paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderColor: '#eee9df', borderRadius: 16, backgroundColor: '#fffefa' },
+  quipBookCover: { width: 44, height: 60, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
   quipBookCopy: { flex: 1, minWidth: 0 },
-  quipBookTitle: { color: '#29382f', fontSize: 13, lineHeight: 18, fontWeight: '600' },
-  quipBookAuthor: { color: '#78857d', fontSize: 10, lineHeight: 15, marginTop: 3 },
-  quipEnabledLabel: { color: '#34755e', fontSize: 8, fontWeight: '800', letterSpacing: 0.4, paddingHorizontal: 8 },
+  quipBookTitle: { color: '#29382f', fontSize: 14, lineHeight: 19, fontWeight: '700' },
+  quipBookAuthor: { color: '#78857d', fontSize: 11, lineHeight: 16, marginTop: 3 },
+  quipEnabledLabel: { color: '#34755e', fontSize: 10, fontWeight: '700', paddingHorizontal: 8 },
   content: { width: '100%', maxWidth: 1050, alignSelf: 'center', paddingHorizontal: 56, paddingTop: 43, paddingBottom: 24 },
-  contentMobile: { paddingHorizontal: 20, paddingTop: 25 },
-  pageHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 33 },
-  syncStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: -19, marginBottom: 23 },
+  contentMobile: { paddingHorizontal: 18, paddingTop: 24, paddingBottom: 28 },
+  pageHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 22 },
+  syncStatusRow: { minHeight: 34, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', marginTop: -10, marginBottom: 22, paddingHorizontal: 11, borderRadius: 18, backgroundColor: '#edf2e9' },
   syncDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#aab4ac' },
   syncDotConnected: { backgroundColor: '#398466' },
   syncDotError: { backgroundColor: '#c45d4e' },
-  syncStatusText: { color: '#819087', fontSize: 8, fontWeight: '700', letterSpacing: 0.75 },
-  eyebrow: { color: '#638070', fontSize: 10, fontWeight: '700', letterSpacing: 1.4, marginBottom: 9 },
-  pageTitle: { color: '#25332d', fontSize: 30, lineHeight: 37, fontWeight: '600', letterSpacing: 0 },
+  syncStatusText: { flexShrink: 1, color: '#557263', fontSize: 11, fontWeight: '600' },
+  eyebrow: { color: '#638070', fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginBottom: 8 },
+  pageTitle: { color: '#25332d', fontSize: 32, lineHeight: 39, fontWeight: '700', letterSpacing: -0.5 },
   issueMark: { color: '#829087', fontSize: 10, fontWeight: '700', letterSpacing: 1, paddingBottom: 5 },
   issueDot: { color: '#d7805b' },
   pillarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
-  sectionLabel: { color: '#68786e', fontSize: 9, fontWeight: '700', letterSpacing: 1.1 },
+  sectionLabel: { color: '#68786e', fontSize: 10, fontWeight: '700', letterSpacing: 0.65 },
   stackCount: { color: '#929d95', fontSize: 9, fontWeight: '700', letterSpacing: 0.8 },
   categoryRow: { maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', gap: 8, marginBottom: 22 },
-  categoryButton: { flex: 1, minWidth: 0, minHeight: 72, justifyContent: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: '#d2dad2', borderRadius: 5, backgroundColor: '#f8f9f6' },
-  categoryButtonSelected: { borderColor: '#34755e', backgroundColor: '#34755e' },
+  categoryButton: { flex: 1, minWidth: 0, minHeight: 72, justifyContent: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: '#e5e4d9', borderRadius: 14, backgroundColor: '#fffefa' },
+  categoryButtonMobile: { flexBasis: '47%', minHeight: 76, paddingHorizontal: 14 },
+  categoryRowMobile: { flexWrap: 'wrap' },
+  categoryButtonSelected: { borderColor: '#2f725b', backgroundColor: '#2f725b' },
   categoryDot: { width: 7, height: 7, borderRadius: 4 },
   categoryButtonCopy: { minWidth: 0 },
-  categoryButtonTitle: { color: '#35433b', fontSize: 11, lineHeight: 14, fontWeight: '700' },
+  categoryButtonTitle: { color: '#35433b', fontSize: 12, lineHeight: 16, fontWeight: '700' },
   categoryButtonTitleSelected: { color: '#fffaf6' },
   categoryButtonCount: { color: '#879188', fontSize: 9, marginTop: 2 },
   categoryButtonCountSelected: { color: '#e5eee7' },
   searchSection: { maxWidth: 860, width: '100%', alignSelf: 'center', marginBottom: 22, zIndex: 2 },
-  searchInputWrap: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 5, backgroundColor: '#fffefa', paddingHorizontal: 13 },
-  searchInput: { flex: 1, minWidth: 0, height: 44, color: '#29382f', fontSize: 13 },
+  searchInputWrap: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: '#e5e4d9', borderRadius: 16, backgroundColor: '#fffefa', paddingHorizontal: 15 },
+  searchInput: { flex: 1, minWidth: 0, height: 50, color: '#29382f', fontSize: 15 },
   searchClear: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   searchResults: { borderWidth: 1, borderColor: '#d8e0d7', borderTopWidth: 0, borderBottomLeftRadius: 5, borderBottomRightRadius: 5, backgroundColor: '#fffefa', overflow: 'hidden' },
   searchResult: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 13, borderTopWidth: 1, borderTopColor: '#e8ece6' },
@@ -1219,8 +1252,10 @@ const styles = StyleSheet.create({
   bookChartSignalTrend: { color: '#34755e' },
   bookChartSignalMeta: { color: '#758279', fontSize: 8, lineHeight: 12, marginTop: 1 },
   chartSourceLink: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  bookCard: { minHeight: 382, maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', backgroundColor: '#fffefa', borderWidth: 1, borderColor: '#e1e4dc', borderRadius: 6, overflow: 'hidden', shadowColor: '#263b30', shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
+  bookCard: { minHeight: 382, maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', backgroundColor: '#fffefa', borderWidth: 1, borderColor: '#eee9df', borderRadius: 22, overflow: 'hidden', shadowColor: '#263b30', shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
+  bookCardMobile: { flexDirection: 'column', minHeight: 0 },
   coverFrame: { width: '37%', minHeight: 382, position: 'relative', overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  coverFrameMobile: { width: '100%', height: 250, minHeight: 250 },
   coverFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22, gap: 12 },
   coverFallbackTitle: { color: '#fffaf0', fontSize: 24, fontWeight: '700', textAlign: 'center', lineHeight: 28 },
   coverFallbackAuthor: { color: '#fffaf0', fontSize: 11, textAlign: 'center' },
@@ -1228,10 +1263,11 @@ const styles = StyleSheet.create({
   coverCaption: { position: 'absolute', bottom: 12, left: 12, backgroundColor: 'rgba(27,42,37,0.82)', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 3 },
   coverCaptionText: { color: '#eff5ee', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
   bookInfo: { flex: 1, minWidth: 0, paddingHorizontal: 31, paddingTop: 30, paddingBottom: 19 },
+  bookInfoMobile: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 18 },
   pillarTag: { alignSelf: 'flex-start', height: 24, flexDirection: 'row', alignItems: 'center', gap: 7, borderWidth: 1, borderRadius: 3, paddingHorizontal: 8 },
   pillarDot: { width: 6, height: 6, borderRadius: 3 },
   pillarTagText: { color: '#58665d', fontSize: 8, fontWeight: '700', letterSpacing: 0.9 },
-  bookTitle: { color: '#25332d', fontSize: 31, lineHeight: 36, fontWeight: '600', marginTop: 17 },
+  bookTitle: { color: '#25332d', fontSize: 29, lineHeight: 35, fontWeight: '700', marginTop: 15 },
   bookAuthor: { color: '#65736a', fontSize: 13, marginTop: 7 },
   authorDivider: { color: '#d7805b' },
   infoRule: { height: 1, backgroundColor: '#e8e9e3', marginVertical: 22 },
@@ -1258,23 +1294,23 @@ const styles = StyleSheet.create({
   catalogId: { color: '#a0a9a2', fontSize: 9, fontWeight: '700', letterSpacing: 0.7 },
   actionRow: { maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 15, gap: 7 },
   actionRowMobile: { flexWrap: 'wrap' },
-  actionButton: { flex: 1, minWidth: 0, minHeight: 65, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 10, borderRadius: 5, borderWidth: 1, borderColor: '#e1e4dd', backgroundColor: '#f8f9f6' },
-  actionButtonMobile: { flexBasis: '31%', minHeight: 75, flexDirection: 'column', justifyContent: 'center', gap: 5, paddingHorizontal: 4 },
+  actionButton: { flex: 1, minWidth: 0, minHeight: 65, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 10, borderRadius: 16, borderWidth: 1, borderColor: '#eee9df', backgroundColor: '#fffefa' },
+  actionButtonMobile: { flexBasis: '31%', minHeight: 88, flexDirection: 'column', justifyContent: 'center', gap: 7, paddingHorizontal: 4 },
   actionDisabled: { opacity: 0.55 },
   actionPressed: { backgroundColor: '#e8eee8', transform: [{ scale: 0.98 }] },
-  actionIcon: { width: 34, height: 34, borderRadius: 5, alignItems: 'center', justifyContent: 'center' },
+  actionIcon: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   actionLabel: { color: '#34433b', fontSize: 11, fontWeight: '600', flexShrink: 1 },
-  actionLabelMobile: { fontSize: 10, textAlign: 'center' },
+  actionLabelMobile: { fontSize: 11, textAlign: 'center' },
   actionHint: { color: '#89958c', fontSize: 7, fontWeight: '700', letterSpacing: 0.4 },
-  emptyState: { maxWidth: 860, width: '100%', minHeight: 300, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', padding: 30, borderWidth: 1, borderColor: '#dfe4dc', borderStyle: 'dashed', borderRadius: 6, backgroundColor: '#f8f9f6' },
+  emptyState: { maxWidth: 860, width: '100%', minHeight: 300, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', padding: 30, borderWidth: 1, borderColor: '#e9e9df', borderRadius: 20, backgroundColor: '#fffefa' },
   emptyIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#e3efe6', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
   emptyTitle: { color: '#2c3c33', fontSize: 19, fontWeight: '600', textAlign: 'center' },
   emptyCopy: { color: '#718077', fontSize: 13, lineHeight: 20, textAlign: 'center', maxWidth: 330, marginTop: 7 },
   resetButton: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 42, borderRadius: 5, backgroundColor: '#e2efe5', paddingHorizontal: 14, marginTop: 17 },
   resetButtonText: { color: '#285f4e', fontSize: 12, fontWeight: '700' },
   shelfView: { minHeight: 350 },
-  shelfList: { borderTopWidth: 1, borderTopColor: '#dfe4dc' },
-  shelfRow: { minHeight: 78, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#dfe4dc', gap: 14 },
+  shelfList: { gap: 8 },
+  shelfRow: { minHeight: 78, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#eee9df', borderRadius: 16, backgroundColor: '#fffefa', paddingHorizontal: 12, gap: 14 },
   snoozedShelfRow: { gap: 8 },
   returnShelfRow: { gap: 8 },
   shelfIndex: { color: '#9ca69e', fontSize: 10, fontWeight: '700', width: 22 },
@@ -1293,6 +1329,6 @@ const styles = StyleSheet.create({
   quipToggleEnabled: { borderColor: '#b9d1c4', backgroundColor: '#e7f0e9' },
   quipToggleLabel: { color: '#718077', fontSize: 8, fontWeight: '800', letterSpacing: 0.35 },
   quipToggleLabelEnabled: { color: '#34755e' },
-  pageFooter: { borderTopWidth: 1, borderTopColor: '#dfe4dc', paddingTop: 14, marginTop: 28, flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  pageFooter: { borderTopWidth: 1, borderTopColor: '#e8e5dc', paddingTop: 14, marginTop: 28, flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   footerCopy: { color: '#9aa49c', fontSize: 8, fontWeight: '700', letterSpacing: 0.8 },
 });

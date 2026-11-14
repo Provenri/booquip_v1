@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { Camera, Check, CheckSquare, Copy, MessageCircle, PenLine, Square, TrendingUp, X } from 'lucide-react-native';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import type { Book } from '@/lib/books';
 import { extractScreenshotTopic } from '@/lib/screenshotTopic';
 import type { QuipTrendTopic } from '@/lib/quipTrends';
@@ -27,6 +27,8 @@ const SCREENSHOT_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const MAX_SCREENSHOT_BASE64_LENGTH = 5_600_000;
 
 export default function TrendReplySheet({ visible, books, onClose, onGenerate }: TrendReplySheetProps) {
+  const { width } = useWindowDimensions();
+  const isCompact = width < 700;
   const [topicSource, setTopicSource] = useState<TopicSource>('write');
   const [trendText, setTrendText] = useState('');
   const [selectedTrendTopic, setSelectedTrendTopic] = useState<QuipTrendTopic | null>(null);
@@ -167,10 +169,10 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
+    <Modal visible={visible} transparent animationType={isCompact ? 'slide' : 'fade'} onRequestClose={onClose}>
+      <View style={[styles.overlay, isCompact && styles.overlayMobile]}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close trend reply" onPress={onClose} style={styles.backdrop} />
-        <View accessibilityViewIsModal style={styles.sheet}>
+        <View accessibilityViewIsModal style={[styles.sheet, isCompact && styles.sheetMobile]}>
           <View style={styles.header}>
             <View style={styles.headerIcon}><MessageCircle color="#2e6d58" size={18} /></View>
             <Pressable accessibilityRole="button" accessibilityLabel="Close trend reply" onPress={onClose} style={styles.closeButton}>
@@ -371,49 +373,51 @@ export default function TrendReplySheet({ visible, books, onClose, onGenerate }:
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(24, 39, 33, 0.42)' },
+  overlayMobile: { justifyContent: 'flex-end', paddingHorizontal: 0 },
   backdrop: { ...StyleSheet.absoluteFillObject },
-  sheet: { width: '100%', maxWidth: 520, maxHeight: '90%', borderRadius: 7, borderWidth: 1, borderColor: '#dde4dc', backgroundColor: '#fbfcf8', padding: 22, shadowColor: '#13241c', shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 8 },
+  sheet: { width: '100%', maxWidth: 520, maxHeight: '90%', borderRadius: 20, borderWidth: 1, borderColor: '#eee9df', backgroundColor: '#fffefa', padding: 22, shadowColor: '#13241c', shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 8 },
+  sheetMobile: { maxWidth: '100%', maxHeight: '92%', marginTop: 'auto', padding: 20, paddingBottom: 28, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderTopLeftRadius: 26, borderTopRightRadius: 26 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  headerIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#e5f1e8', alignItems: 'center', justifyContent: 'center' },
-  closeButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  headerIcon: { width: 42, height: 42, borderRadius: 16, backgroundColor: '#e7f1e6', alignItems: 'center', justifyContent: 'center' },
+  closeButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21, backgroundColor: '#f1f1ea' },
   content: { paddingBottom: 6 },
   eyebrow: { color: '#6f8175', fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
-  title: { color: '#29382f', fontSize: 25, lineHeight: 31, fontWeight: '600', marginTop: 6 },
-  description: { color: '#68766d', fontSize: 13, lineHeight: 19, marginTop: 7 },
-  sourceFilter: { flexDirection: 'row', alignSelf: 'flex-start', gap: 3, padding: 3, marginTop: 8, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, backgroundColor: '#f0f3ee' },
-  sourceTab: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 10, borderRadius: 3 },
-  sourceTabSelected: { backgroundColor: '#34755e' },
-  sourceTabLabel: { color: '#526259', fontSize: 9, fontWeight: '700' },
+  title: { color: '#29382f', fontSize: 28, lineHeight: 34, fontWeight: '700', marginTop: 6 },
+  description: { color: '#68766d', fontSize: 14, lineHeight: 21, marginTop: 7 },
+  sourceFilter: { flexDirection: 'row', alignSelf: 'stretch', gap: 4, padding: 4, marginTop: 12, borderWidth: 1, borderColor: '#e5e4d9', borderRadius: 14, backgroundColor: '#f5f4ed' },
+  sourceTab: { flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, borderRadius: 11 },
+  sourceTabSelected: { backgroundColor: '#2f725b' },
+  sourceTabLabel: { color: '#526259', fontSize: 11, fontWeight: '700' },
   sourceTabLabelSelected: { color: '#fffaf6' },
-  trendInput: { minHeight: 84, maxHeight: 150, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, padding: 10, marginTop: 9, color: '#29382f', backgroundColor: '#fff', fontSize: 12, lineHeight: 18 },
-  uploadButton: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, alignSelf: 'flex-start', paddingHorizontal: 12, borderRadius: 4, marginTop: 9, backgroundColor: '#e5f1e8' },
-  uploadLabel: { color: '#2f725b', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
-  trendChip: { flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#cfe0d4', borderRadius: 4, backgroundColor: '#f4f7f2', padding: 10, marginTop: 9 },
+  trendInput: { minHeight: 100, maxHeight: 160, borderWidth: 1, borderColor: '#e5e4d9', borderRadius: 14, padding: 14, marginTop: 10, color: '#29382f', backgroundColor: '#fff', fontSize: 15, lineHeight: 22 },
+  uploadButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, alignSelf: 'stretch', paddingHorizontal: 14, borderRadius: 14, marginTop: 10, backgroundColor: '#e7f1e6' },
+  uploadLabel: { color: '#2f725b', fontSize: 11, fontWeight: '700' },
+  trendChip: { flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#dbe6d9', borderRadius: 14, backgroundColor: '#f5f7f1', padding: 12, marginTop: 10 },
   trendChipCopy: { flex: 1, minWidth: 0 },
   trendChipRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  trendChipTopic: { flex: 1, color: '#29382f', fontSize: 12, fontWeight: '600' },
+  trendChipTopic: { flex: 1, color: '#29382f', fontSize: 14, fontWeight: '700' },
   trendChipCountry: { color: '#78887d', fontSize: 8, fontWeight: '800' },
   trendChipSummary: { color: '#68766d', fontSize: 10, lineHeight: 14, marginTop: 3 },
   trendChangeButton: { minHeight: 32, justifyContent: 'center', paddingHorizontal: 8 },
   trendChangeLabel: { color: '#34755e', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
-  booksHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 },
+  booksHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20 },
   booksHeaderLabel: { marginTop: 0 },
-  selectAllButton: { minHeight: 30, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 },
-  selectAllLabel: { color: '#34755e', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
-  bookList: { borderTopWidth: 1, borderTopColor: '#e5e9e3', marginTop: 6 },
-  bookRow: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#e5e9e3' },
+  selectAllButton: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 8, borderRadius: 12, backgroundColor: '#edf2e9' },
+  selectAllLabel: { color: '#34755e', fontSize: 10, fontWeight: '700' },
+  bookList: { gap: 7, marginTop: 8 },
+  bookRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#eee9df', borderRadius: 13, backgroundColor: '#fffefa' },
   bookRowCopy: { flex: 1, minWidth: 0 },
-  bookRowTitle: { color: '#35433b', fontSize: 11, fontWeight: '600' },
-  bookRowAuthor: { color: '#78857d', fontSize: 9, marginTop: 2 },
-  fieldHint: { color: '#879188', fontSize: 10, marginTop: 7 },
-  fieldLabel: { color: '#78887d', fontSize: 8, fontWeight: '700', letterSpacing: 0.9, marginTop: 16 },
-  replyInput: { minHeight: 100, maxHeight: 220, borderWidth: 1, borderColor: '#d8e0d7', borderRadius: 4, padding: 10, marginTop: 7, color: '#29382f', backgroundColor: '#fff', fontSize: 13, lineHeight: 19 },
+  bookRowTitle: { color: '#35433b', fontSize: 13, fontWeight: '700' },
+  bookRowAuthor: { color: '#78857d', fontSize: 11, marginTop: 3 },
+  fieldHint: { color: '#879188', fontSize: 12, lineHeight: 17, marginTop: 8 },
+  fieldLabel: { color: '#78887d', fontSize: 10, fontWeight: '700', letterSpacing: 0.6, marginTop: 18 },
+  replyInput: { minHeight: 120, maxHeight: 240, borderWidth: 1, borderColor: '#e5e4d9', borderRadius: 14, padding: 14, marginTop: 8, color: '#29382f', backgroundColor: '#fff', fontSize: 15, lineHeight: 22 },
   characterCount: { color: '#879188', fontSize: 9, textAlign: 'right', marginTop: 4 },
   error: { color: '#a9443d', fontSize: 11, lineHeight: 16, marginTop: 8 },
-  actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 9, marginTop: 16 },
-  generateButton: { minHeight: 40, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14, borderRadius: 4, backgroundColor: '#34755e' },
-  generateLabel: { color: '#fffaf6', fontSize: 8, fontWeight: '800', letterSpacing: 0.6 },
-  copyButton: { minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 12, borderRadius: 4, backgroundColor: '#e5f1e8' },
+  actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 9, marginTop: 18 },
+  generateButton: { minHeight: 50, flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16, borderRadius: 15, backgroundColor: '#2f725b' },
+  generateLabel: { color: '#fffaf6', fontSize: 12, fontWeight: '700' },
+  copyButton: { minHeight: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 16, borderRadius: 15, backgroundColor: '#e7f1e6' },
   copyLabel: { color: '#2f725b', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
   disabled: { opacity: 0.5 },
   pressed: { opacity: 0.85 },
