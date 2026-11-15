@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list';
 import {
-  Image,
+  ActivityIndicator,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,10 +12,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { Extrapolation, interpolate, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { Extrapolation, interpolate, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import {
   ArrowLeft,
@@ -28,7 +30,6 @@ import {
   ChevronRight,
   ChevronUp,
   Clock3,
-  ExternalLink,
   Tv,
   MessageCircle,
   Search,
@@ -48,19 +49,14 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { deleteUserSwipe, getOrCreateAnonymousUser, loadUserSwipes, saveQuipEnabled, saveUserSwipe } from '@/lib/swipes';
 import { getBookOnRamp } from '@/lib/onramp';
 import QuipWorkspace from '@/components/QuipWorkspace';
-import { generateTrendReply } from '@/lib/trendInterceptor';
+import { generateQuipIdea, generateTrendReply } from '@/lib/trendInterceptor';
 import { EMPTY_CHART_DATA, loadCatalog, loadChartData, loadPillars, type ChartData } from '@/lib/catalog';
-import { colors, radii, spacing, type } from '@/constants/theme';
+import { colors, pageLayout, radii, spacing, type } from '@/constants/theme';
 
 type Screen = 'discover' | 'tbr' | 'read' | 'snoozed';
 type Section = 'home' | 'book' | 'quip';
 type Action = BookAction;
 type SyncStatus = 'local' | 'loading' | 'connected' | 'error';
-
-const ACTIONS: { id: Action; label: string; color: string; icon: typeof ArrowRight }[] = [
-  { id: 'tbr', label: 'Save for later', color: colors.saveAction, icon: ArrowRight },
-  { id: 'next', label: 'Skip', color: colors.brandMuted, icon: ArrowLeft },
-];
 
 function actionFeedback(action: Action) {
   if (Platform.OS === 'web') return;
@@ -169,9 +165,10 @@ export default function DiscoverScreen() {
   const [onRampError, setOnRampError] = useState('');
   const [isOnRampLoading, setIsOnRampLoading] = useState(false);
   const [isOnRampVisible, setIsOnRampVisible] = useState(false);
-  const [coverFailed, setCoverFailed] = useState(false);
+  const [failedCoverUri, setFailedCoverUri] = useState<string | null>(null);
   const [adaptationsExpanded, setAdaptationsExpanded] = useState(false);
-  const [shortTakeExpanded, setShortTakeExpanded] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshRequested = useRef(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
@@ -180,10 +177,19 @@ export default function DiscoverScreen() {
   const [authRetryCount, setAuthRetryCount] = useState(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(isSupabaseConfigured ? 'loading' : 'local');
   const [syncMessage, setSyncMessage] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+  const [isActionSaving, setIsSaving] = useState(false);
+  const [pendingQuipIds, setPendingQuipIds] = useState<string[]>([]);
+  const pendingQuipIdsRef = useRef(new Set<string>());
+  const isSaving = isActionSaving || isRefreshing || pendingQuipIds.length > 0;
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const reducedMotion = useReducedMotion();
   const dragX = useSharedValue(0);
-  const dragY = useSharedValue(0);
-  const indicatorsVisible = useSharedValue(false);
+  const indicatorsVisible = useSharedValue(0);
+  const isDragging = useSharedValue(false);
+  const contentOpacity = useSharedValue(1);
+  const bookOpacity = useSharedValue(1);
+  const transitioningRef = useRef(false);
+  const mountedRef = useRef(true);
   const bookCardRef = useRef<View>(null);
   const webCardHeldRef = useRef(false);
   const discoveryScrollRef = useRef<ScrollView>(null);
@@ -191,20 +197,22 @@ export default function DiscoverScreen() {
   const onRampRef = useRef<View>(null);
   const discoveryScrollY = useRef(0);
   const shouldScrollToOnRamp = useRef(false);
-  const actionRef = useRef<(action: Action) => void>(() => undefined);
+  const actionRef = useRef<(action: Action) => Promise<void>>(async () => undefined);
   const selectedBookIdRef = useRef(selectedBookId);
   selectedBookIdRef.current = selectedBookId;
   const onRampRequestId = useRef(0);
+  const onRampController = useRef<AbortController | null>(null);
   const bookCardStyle = useAnimatedStyle(() => ({
+    opacity: bookOpacity.get(),
     transform: [
       { translateX: dragX.get() },
-      { translateY: dragY.get() },
-      { rotate: `${interpolate(dragX.get(), [-300, 0, 300], [-8, 0, 8], Extrapolation.CLAMP)}deg` },
+      { rotate: `${reducedMotion ? 0 : interpolate(dragX.get(), [-300, 0, 300], [-8, 0, 8], Extrapolation.CLAMP)}deg` },
     ],
   }));
   const indicatorStyle = useAnimatedStyle(() => ({
-    opacity: indicatorsVisible.get() ? 1 : 0,
+    opacity: indicatorsVisible.get(),
   }));
+  const contentStyle = useAnimatedStyle(() => ({ opacity: contentOpacity.get() }));
 
   const completedIds = new Set([...tbrIds, ...readIds]);
   const availableBooks = books.filter(
@@ -220,7 +228,10 @@ export default function DiscoverScreen() {
     .filter((item) => (frozenUntil[item.id] ?? 0) > Date.now())
     .sort((left, right) => frozenUntil[left.id] - frozenUntil[right.id]);
   const book = selectedBookId ? books.find((item) => item.id === selectedBookId) : undefined;
+  const tagline = book?.tagline || (book?.pillar === 'charts' ? 'Your next read could start here.' : undefined);
+  const coverUri = book?.coverUrl ?? (book?.isbn ? `https://covers.openlibrary.org/b/isbn/${book.isbn}-L.jpg` : null);
   const nextBook = book ? findNextBook(categoryBooks, book.id) : undefined;
+  const nextCoverUri = nextBook?.coverUrl ?? (nextBook?.isbn ? `https://covers.openlibrary.org/b/isbn/${nextBook.isbn}-L.jpg` : null);
   const currentPillar = book
     ? pillars.find((pillar) => pillar.id === book.pillar)
     : pillars.find((pillar) => pillar.id === selectedPillar);
@@ -230,6 +241,17 @@ export default function DiscoverScreen() {
       ).slice(0, 5)
     : [];
   const chartSignals = book ? chartData.listings.filter((listing) => listing.bookId === book.id) : [];
+
+  useEffect(() => {
+    if (section !== 'book' || screen !== 'discover' || !nextCoverUri) return;
+    void Image.prefetch(nextCoverUri, { cachePolicy: 'memory-disk' })
+      .then((loaded) => {
+        if (!loaded) console.warn('Could not preload the next book cover.');
+      })
+      .catch((error: unknown) => {
+        console.warn('Could not preload the next book cover:', error);
+      });
+  }, [nextCoverUri, screen, section]);
 
   useEffect(() => {
     if (section !== 'book' || screen !== 'discover' || selectedPillar !== null || syncStatus === 'loading') return;
@@ -247,7 +269,7 @@ export default function DiscoverScreen() {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let active = true;
-    setSyncStatus('loading');
+    if (!refreshRequested.current) setSyncStatus('loading');
     setSyncMessage('');
 
     const restoreShelf = async () => {
@@ -256,15 +278,15 @@ export default function DiscoverScreen() {
         if (!activeUser) throw new Error('Supabase is not configured.');
         const [swipes, catalog, remotePillars, remoteChartData] = await Promise.all([
           loadUserSwipes(activeUser.id),
-          loadCatalog().catch(() => [] as Book[]),
-          loadPillars().catch(() => []),
+          loadCatalog(),
+          loadPillars(),
           loadChartData()
             .then((data) => ({ data, failed: false }))
             .catch(() => ({ data: EMPTY_CHART_DATA, failed: true })),
         ]);
         if (!active) return;
-        if (catalog.length > 0) setBooks(catalog);
-        setChartData(remoteChartData.data);
+        setBooks(catalog);
+        if (!remoteChartData.failed) setChartData(remoteChartData.data);
         setChartLoadError(remoteChartData.failed);
         const hasCurrentPillars = remotePillars.length === PILLARS.length && PILLARS.every((pillar) => remotePillars.some((remotePillar) => remotePillar.id === pillar.id));
         if (hasCurrentPillars) setPillars(remotePillars);
@@ -284,6 +306,15 @@ export default function DiscoverScreen() {
             if (timestamp > Date.now()) restoredFrozen[swipe.book_id] = timestamp;
           }
         }
+        setSelectedBookId((current) => {
+          if (!current) return current;
+          const isAvailable = (item: Book) => item.isActive !== false &&
+            !restoredTbr.includes(item.id) && !restoredRead.includes(item.id) && !restoredFrozen[item.id];
+          const selected = catalog.find((item) => item.id === current);
+          if (selected && isAvailable(selected)) return current;
+          const pillar = selected?.pillar ?? books.find((item) => item.id === current)?.pillar;
+          return catalog.find((item) => item.pillar === pillar && isAvailable(item))?.id ?? null;
+        });
 
         setUserId(activeUser.id);
         setAccountEmail(activeUser.email ?? null);
@@ -293,18 +324,34 @@ export default function DiscoverScreen() {
         setReadIds(restoredRead);
         setQuipBookIds(restoredQuip);
         setFrozenUntil(restoredFrozen);
-        setSyncMessage('');
-        setSyncStatus('connected');
+        setSyncMessage(remoteChartData.failed ? 'Chart rankings could not refresh. Pull down to try again.' : '');
+        setSyncStatus(remoteChartData.failed ? 'error' : 'connected');
       } catch (error) {
         if (!active) return;
         setSyncMessage(error instanceof Error ? error.message : 'Could not create or restore the guest session.');
         setSyncStatus('error');
+      } finally {
+        if (active) {
+          refreshRequested.current = false;
+          setIsRefreshing(false);
+        }
       }
     };
 
     void restoreShelf();
     return () => { active = false; };
   }, [authRetryCount]);
+
+  const handleRefresh = () => {
+    if (refreshRequested.current || isSaving || pendingQuipIdsRef.current.size > 0 || transitioningRef.current || syncStatus === 'loading') return;
+    if (!isSupabaseConfigured) {
+      setFrozenUntil((items) => ({ ...items }));
+      return;
+    }
+    refreshRequested.current = true;
+    setIsRefreshing(true);
+    setAuthRetryCount((count) => count + 1);
+  };
 
   useEffect(() => {
     if (!supabase) return;
@@ -347,16 +394,32 @@ export default function DiscoverScreen() {
   }, []);
 
   useEffect(() => {
-    setCoverFailed(false);
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      onRampController.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    dragX.set(0);
+    setFailedCoverUri(null);
     setAdaptationsExpanded(false);
-    setShortTakeExpanded(false);
     shouldScrollToOnRamp.current = false;
     onRampRequestId.current += 1;
+    onRampController.current?.abort();
+    onRampController.current = null;
     setOnRampText('');
     setOnRampError('');
     setIsOnRampLoading(false);
     setIsOnRampVisible(false);
-  }, [book?.id]);
+    contentOpacity.set(reducedMotion ? 1 : 0);
+    bookOpacity.set(reducedMotion ? 1 : 0);
+    if (!reducedMotion) {
+      contentOpacity.set(withTiming(1, { duration: 160 }));
+      bookOpacity.set(withTiming(1, { duration: 160 }));
+    }
+  }, [book?.id, bookOpacity, contentOpacity, dragX, reducedMotion]);
 
   useEffect(() => {
     if (!onRampText || !isOnRampVisible || !shouldScrollToOnRamp.current) return;
@@ -376,7 +439,7 @@ export default function DiscoverScreen() {
     if (Platform.OS !== 'web' || !(bookCardRef.current instanceof HTMLElement)) return;
     const card = bookCardRef.current;
     const preventScrollWhileDragging = (event: TouchEvent) => {
-      if (indicatorsVisible.get()) event.preventDefault();
+      if (isDragging.get()) event.preventDefault();
     };
     const resetHeld = () => { webCardHeldRef.current = false; };
     const preventHeldClick = (event: MouseEvent) => {
@@ -394,27 +457,30 @@ export default function DiscoverScreen() {
       card.removeEventListener('pointerdown', resetHeld, true);
       card.removeEventListener('click', preventHeldClick, true);
     };
-  }, [book?.id, indicatorsVisible, screen, section]);
+  }, [book?.id, isDragging, screen, section]);
 
   const handleGetOnRamp = async () => {
-    if (!book || isOnRampLoading) return;
+    if (!book || onRampController.current || syncStatus === 'loading' || isSaving || isTransitioning) return;
     const requestId = ++onRampRequestId.current;
+    const controller = new AbortController();
+    onRampController.current = controller;
     setIsOnRampLoading(true);
     setOnRampError('');
     setOnRampText('');
     try {
-      const result = await getBookOnRamp(book);
-      if (requestId === onRampRequestId.current) {
+      const result = await getBookOnRamp(book, controller.signal);
+      if (mountedRef.current && requestId === onRampRequestId.current) {
         shouldScrollToOnRamp.current = true;
         setOnRampText(result);
         setIsOnRampVisible(true);
       }
     } catch (error) {
-      if (requestId === onRampRequestId.current) {
+      if (mountedRef.current && requestId === onRampRequestId.current) {
         setOnRampError(error instanceof Error ? error.message : 'Could not generate the book on-ramp.');
       }
     } finally {
-      if (requestId === onRampRequestId.current) setIsOnRampLoading(false);
+      if (onRampController.current === controller) onRampController.current = null;
+      if (mountedRef.current && requestId === onRampRequestId.current) setIsOnRampLoading(false);
     }
   };
 
@@ -432,7 +498,7 @@ export default function DiscoverScreen() {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
-      if (section !== 'book' || screen !== 'discover' || !book || syncStatus === 'loading' || isSaving || isAccountSheetVisible) return;
+      if (section !== 'book' || screen !== 'discover' || !book || syncStatus === 'loading' || isSaving || transitioningRef.current || isAccountSheetVisible) return;
       const actionByKey: Record<string, Action> = {
         ArrowRight: 'tbr',
         ArrowUp: 'read',
@@ -449,7 +515,7 @@ export default function DiscoverScreen() {
   }, [section, screen, book, syncStatus, isSaving, isAccountSheetVisible, nextBook]);
 
   const handleAction = async (action: Action) => {
-    if (!book || section !== 'book' || screen !== 'discover' || syncStatus === 'loading' || isSaving) return;
+    if (!book || section !== 'book' || screen !== 'discover' || syncStatus === 'loading' || isSaving || refreshRequested.current || transitioningRef.current) return;
     const selectedBook = book;
     if (action === 'next' && !nextBook) return;
     actionFeedback(action);
@@ -476,26 +542,40 @@ export default function DiscoverScreen() {
       }
       setIsSaving(false);
     }
-    setSelectedBookId(nextBook?.id ?? null);
+    transitioningRef.current = true;
+    setIsTransitioning(true);
+    if (!mountedRef.current) return;
+    if (selectedBookIdRef.current === selectedBook.id) {
+      bookOpacity.set(reducedMotion ? 1 : 0);
+      contentOpacity.set(reducedMotion ? 1 : 0);
+      setSelectedBookId(nextBook?.id ?? null);
+    }
     if (action === 'tbr') setTbrIds((ids) => [...ids, selectedBook.id]);
     if (action === 'read') setReadIds((ids) => [...ids, selectedBook.id]);
     if (action === 'freeze') {
       setFrozenUntil((items) => ({ ...items, [selectedBook.id]: Date.now() + 90 * 24 * 60 * 60 * 1000 }));
     }
+    transitioningRef.current = false;
+    setIsTransitioning(false);
   };
   actionRef.current = handleAction;
   const finishSwipe = (action: Action, bookId: string | undefined) => {
-    if (bookId && selectedBookIdRef.current === bookId) actionRef.current(action);
+    if (!bookId || selectedBookIdRef.current !== bookId) {
+      dragX.set(0);
+      return;
+    }
+    void actionRef.current(action).finally(() => dragX.set(0));
   };
 
   const handleQuipToggle = (bookId: string) => {
-    if (syncStatus === 'loading' || isSaving) return;
+    if (syncStatus === 'loading' || isActionSaving || refreshRequested.current || pendingQuipIdsRef.current.has(bookId)) return;
     const wasEnabled = quipBookIds.includes(bookId);
     const nextEnabled = !wasEnabled;
     setQuipBookIds((ids) => nextEnabled ? [...ids, bookId] : ids.filter((id) => id !== bookId));
     if (!userId || !isSupabaseConfigured) return;
 
-    setIsSaving(true);
+    pendingQuipIdsRef.current.add(bookId);
+    setPendingQuipIds([...pendingQuipIdsRef.current]);
     void saveQuipEnabled(userId, bookId, nextEnabled)
       .then(() => {
         setSyncMessage('');
@@ -508,48 +588,58 @@ export default function DiscoverScreen() {
         setSyncMessage('Could not update the Quip setting. The previous setting was restored.');
         setSyncStatus('error');
       })
-      .finally(() => setIsSaving(false));
+      .finally(() => {
+        pendingQuipIdsRef.current.delete(bookId);
+        setPendingQuipIds([...pendingQuipIdsRef.current]);
+      });
   };
 
-  const resetCardPosition = (velocityX = 0, velocityY = 0) => {
+  const resetCardPosition = (velocityX = 0) => {
     'worklet';
-    dragX.set(withSpring(0, { duration: 400, dampingRatio: 0.8, velocity: velocityX }));
-    dragY.set(withSpring(0, { duration: 400, dampingRatio: 0.8, velocity: velocityY }));
+    dragX.set(reducedMotion ? 0 : withSpring(0, { duration: 400, dampingRatio: 0.8, velocity: velocityX }));
   };
   const canGoNext = Boolean(nextBook);
   const swipeBookId = book?.id;
   const isWeb = Platform.OS === 'web';
   const markCardHeld = () => { webCardHeldRef.current = true; };
   const cardGesture = Gesture.Pan()
-    .enabled(Boolean(book) && syncStatus !== 'loading' && !isSaving)
+    .enabled(Boolean(book) && syncStatus !== 'loading' && !isSaving && !isRefreshing && !isTransitioning)
     .activeOffsetX([-12, 12])
     .failOffsetY([-12, 12])
+    .onTouchesDown(() => {
+      indicatorsVisible.set(withTiming(1, { duration: reducedMotion ? 0 : 140 }));
+    })
+    .onTouchesUp(() => {
+      indicatorsVisible.set(withTiming(0, { duration: reducedMotion ? 0 : 180 }));
+    })
     .onStart(() => {
-      indicatorsVisible.set(true);
+      isDragging.set(true);
       if (isWeb) scheduleOnRN(markCardHeld);
     })
     .onUpdate((event) => {
       dragX.set(event.translationX);
-      dragY.set(event.translationY);
     })
     .onEnd((event, success) => {
       if (!success) return;
       const action = getSwipeAction(event.translationX, event.translationY, event.velocityX, event.velocityY, canGoNext);
       if (!action) {
-        resetCardPosition(event.velocityX, event.velocityY);
+        resetCardPosition(event.velocityX);
         return;
       }
 
-      const destinationX = Math.sign(event.translationX) * 460;
-      dragY.set(withSpring(event.translationY, { duration: 180, dampingRatio: 0.8, velocity: event.velocityY }));
-      dragX.set(withSpring(destinationX, { duration: 180, dampingRatio: 0.8, velocity: event.velocityX }, (finished) => {
-        if (finished) scheduleOnRN(finishSwipe, action, swipeBookId);
+      if (reducedMotion) {
         dragX.set(0);
-        dragY.set(0);
+        scheduleOnRN(finishSwipe, action, swipeBookId);
+        return;
+      }
+      const destinationX = Math.sign(event.translationX) * 460;
+      dragX.set(withTiming(destinationX, { duration: 150 }, (finished) => {
+        if (finished) scheduleOnRN(finishSwipe, action, swipeBookId);
       }));
     })
     .onFinalize((_event, success) => {
-      indicatorsVisible.set(false);
+      isDragging.set(false);
+      indicatorsVisible.set(withTiming(0, { duration: reducedMotion ? 0 : 180 }));
       if (!success) resetCardPosition();
     });
 
@@ -745,9 +835,8 @@ export default function DiscoverScreen() {
       <View style={styles.headingCopy}>
         <View style={styles.headingEyebrowRow}>
           <Text style={styles.eyebrow}>{section === 'home' ? 'YOUR LIBRARY' : section === 'book' ? 'BOOK' : 'QUIP'}</Text>
-          <Text style={styles.issueMark}>FIELD NOTES · 2026</Text>
         </View>
-        <Text style={[styles.pageTitle, section === 'book' && screen === 'discover' && styles.editorialTitle]}>{section === 'home' ? 'Your Library' : section === 'book' ? screenTitle : 'Your Quip library'}</Text>
+        <Text style={styles.pageTitle}>{section === 'home' ? 'Your Library' : section === 'book' ? screenTitle : 'Your Quip library'}</Text>
       </View>
     </View>
   );
@@ -760,12 +849,13 @@ export default function DiscoverScreen() {
   const pageFooter = isWide ? (
     <View style={styles.pageFooter}>
       <Text style={styles.footerCopy}>A GOOD BOOK IS A CHANGE OF PERSPECTIVE.</Text>
-      <Text style={styles.footerCopy}>BOOQUIP <Text style={styles.issueDot}>·</Text> FIELD NOTES</Text>
+      <Text style={styles.footerCopy}>BOOQUIP</Text>
     </View>
   ) : null;
   const shelfListHeader = (
     <View>
       {pageHeading}
+      {syncStatus === 'error' ? syncStatusIndicator : null}
       <View style={styles.pillarHeader}>
         <Text style={styles.sectionLabel}>{screen === 'tbr' ? 'SAVED FOR LATER' : screen === 'read' ? 'MARKED AS READ' : 'SNOOZED FOR LATER'}</Text>
         <Text style={styles.stackCount}>{String(shelfBooks.length).padStart(2, '0')} BOOKS</Text>
@@ -779,21 +869,23 @@ export default function DiscoverScreen() {
           accessibilityRole="switch"
           accessibilityState={{
             checked: quipBookIds.includes(item.id),
-            disabled: isSaving || syncStatus === 'loading',
+            disabled: isActionSaving || isRefreshing || pendingQuipIds.includes(item.id) || syncStatus === 'loading',
+            busy: pendingQuipIds.includes(item.id),
           }}
           accessibilityLabel={`${quipBookIds.includes(item.id) ? 'Quip on for' : 'Quip off for'} ${item.title}`}
-          disabled={isSaving || syncStatus === 'loading'}
+          disabled={isActionSaving || isRefreshing || pendingQuipIds.includes(item.id) || syncStatus === 'loading'}
           onPress={() => handleQuipToggle(item.id)}
           style={({ pressed }) => [
             styles.quipToggle,
+            styles.finishedBookAction,
             quipBookIds.includes(item.id) && styles.quipToggleEnabled,
-            (isSaving || syncStatus === 'loading') && styles.actionDisabled,
+            (isActionSaving || isRefreshing || pendingQuipIds.includes(item.id) || syncStatus === 'loading') && styles.actionDisabled,
             pressed && styles.actionPressed,
           ]}
         >
           <MessageCircle color={quipBookIds.includes(item.id) ? colors.brand : colors.secondary} size={14} />
           <Text style={[styles.quipToggleLabel, quipBookIds.includes(item.id) && styles.quipToggleLabelEnabled]}>
-            {quipBookIds.includes(item.id) ? 'QUIP ON' : 'QUIP OFF'}
+            {pendingQuipIds.includes(item.id) ? 'SAVING…' : quipBookIds.includes(item.id) ? 'QUIP ON' : 'QUIP OFF'}
           </Text>
         </Pressable>
       )}
@@ -826,7 +918,7 @@ export default function DiscoverScreen() {
           accessibilityLabel={item.isActive === false ? `Remove archived ${item.title} from this shelf` : `Remove ${item.title} from this shelf and return it to discovery`}
           disabled={isSaving || syncStatus === 'loading'}
           onPress={() => handleRemoveFromShelf(item.id)}
-          style={({ pressed }) => [styles.returnBookButton, isSaving && styles.actionDisabled, pressed && styles.actionPressed]}
+          style={({ pressed }) => [styles.returnBookButton, screen === 'read' && styles.finishedBookAction, isSaving && styles.actionDisabled, pressed && styles.actionPressed]}
         >
           <RotateCcw color={colors.brand} size={14} />
           <Text style={styles.returnBookButtonText}>{item.isActive === false ? 'REMOVE' : 'RETURN'}</Text>
@@ -909,20 +1001,27 @@ export default function DiscoverScreen() {
             <QuipWorkspace
               sourceBooks={quipBooks}
               isSaving={isSaving || syncStatus === 'loading'}
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              refreshError={syncStatus === 'error' ? syncMessage : ''}
               onGenerate={generateTrendReply}
+              onGenerateIdea={generateQuipIdea}
             />
           ) : section === 'book' && screen !== 'discover' ? (
             <FlashList
               style={styles.contentList}
-              contentContainerStyle={[styles.content, !isWide && styles.contentMobile]}
+              contentContainerStyle={styles.content}
               data={shelfBooks}
               keyExtractor={(item) => item.id}
               renderItem={renderShelfBook}
               ItemSeparatorComponent={ShelfBookSeparator}
-              extraData={[screen, quipBookIds, frozenUntil, isSaving, syncStatus]}
+              extraData={[screen, quipBookIds, frozenUntil, isSaving, pendingQuipIds, syncStatus]}
               ListHeaderComponent={shelfListHeader}
               ListEmptyComponent={emptyShelfState}
               ListFooterComponent={pageFooter}
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              alwaysBounceVertical
             />
           ) : (
           <View ref={discoveryViewportRef} style={styles.discoveryViewport}>
@@ -930,7 +1029,9 @@ export default function DiscoverScreen() {
             ref={discoveryScrollRef}
             onScroll={(event) => { discoveryScrollY.current = event.nativeEvent.contentOffset.y; }}
             scrollEventThrottle={16}
-            contentContainerStyle={[styles.content, !isWide && styles.contentMobile]}
+            contentContainerStyle={styles.content}
+            alwaysBounceVertical
+            refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.brand} colors={[colors.brand]} />}
           >
             {pageHeading}
             {(section !== 'book' || syncStatus === 'error' || syncStatus === 'loading') && syncStatusIndicator}
@@ -1045,40 +1146,85 @@ export default function DiscoverScreen() {
                   })}
                 </View>
 
-                {book && (
-                  <View style={styles.cardMetaRow}>
-                    <Text style={styles.cardPosition}>Swipe left to skip · right to save</Text>
-                  </View>
-                )}
-
                 {book ? (
-                  <>
-                    <GestureDetector gesture={cardGesture} touchAction="pan-y">
-                      <Animated.View ref={bookCardRef} style={[styles.bookCard, bookCardStyle]}>
-                        <View style={styles.bookHeader}>
-                          <View style={[styles.coverFrame, { backgroundColor: book.color }]}>
-                            <View style={styles.coverFallback}>
-                              <BookOpen color={colors.white} size={24} strokeWidth={1.5} />
-                              <Text style={styles.coverFallbackTitle}>{book.title}</Text>
-                              <Text style={styles.coverFallbackAuthor}>{book.author}</Text>
+                  <View style={styles.bookFeature}>
+                    <View style={styles.bookGestureArea}>
+                      <Animated.View
+                        pointerEvents="none"
+                        accessible={false}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                        aria-hidden
+                        style={[styles.indicatorOverlay, indicatorStyle]}
+                      >
+                        <View style={[styles.directionIndicator, !canGoNext && styles.actionDisabled]}>
+                          <ArrowLeft color={colors.brandMuted} size={16} />
+                          <Text style={styles.indicatorText}>Next book</Text>
+                        </View>
+                        <View style={styles.directionIndicator}>
+                          <Text style={styles.indicatorText}>Move to shelf</Text>
+                          <ArrowRight color={colors.brandMuted} size={16} />
+                        </View>
+                      </Animated.View>
+                      <GestureDetector gesture={cardGesture} touchAction="pan-y">
+                        <Animated.View
+                          ref={bookCardRef}
+                          style={[styles.bookHeader, bookCardStyle]}
+                          accessible
+                          accessibilityRole="adjustable"
+                          accessibilityLabel={`${book.title} by ${book.author}`}
+                          accessibilityHint="Swipe left for the next book or right to move this book to your reading shelf."
+                          accessibilityActions={[
+                            ...(canGoNext ? [{ name: 'next', label: 'Next book' }] : []),
+                            { name: 'tbr', label: 'Move to shelf' },
+                          ]}
+                          onAccessibilityAction={(event) => {
+                            const action = event.nativeEvent.actionName;
+                            if (action === 'next' || action === 'tbr') void handleAction(action);
+                          }}
+                        >
+                          <View style={styles.coverShadow}>
+                            <View style={[styles.coverFrame, { backgroundColor: book.color }]}>
+                              <View style={styles.coverFallback}>
+                                <BookOpen color={colors.white} size={24} strokeWidth={1.5} />
+                                <Text style={styles.coverFallbackTitle}>{book.title}</Text>
+                                <Text style={styles.coverFallbackAuthor}>{book.author}</Text>
+                              </View>
+                              {coverUri && failedCoverUri !== coverUri && (
+                                <Image
+                                  accessibilityLabel={`Cover of ${book.title}`}
+                                  cachePolicy="memory-disk"
+                                  recyclingKey={coverUri}
+                                  onError={() => setFailedCoverUri(coverUri)}
+                                  source={{ uri: coverUri }}
+                                  style={styles.coverImage}
+                                  contentFit="cover"
+                                />
+                              )}
                             </View>
-                            {!coverFailed && (book.coverUrl || book.isbn) && (
-                              <Image
-                                accessibilityLabel={`Cover of ${book.title}`}
-                                onError={() => setCoverFailed(true)}
-                                source={{ uri: book.coverUrl ?? `https://covers.openlibrary.org/b/isbn/${book.isbn}-L.jpg` }}
-                                style={styles.coverImage}
-                                resizeMode="cover"
-                              />
-                            )}
                           </View>
                           <View style={styles.bookHeaderText}>
-                            {book.year ? <Text style={styles.bookYear}>{book.year}</Text> : null}
                             <Text style={styles.bookTitle}>{book.title}</Text>
-                            <Text style={styles.bookAuthor}>{book.author}</Text>
+                            <Text style={styles.bookAuthor}>By {book.author}</Text>
                           </View>
-                        </View>
-                        <View style={styles.bookInfo}>
+                        </Animated.View>
+                      </GestureDetector>
+                    </View>
+                    <View style={styles.bookInfo}>
+                      <Animated.View style={contentStyle}>
+                          {tagline ? <Text style={styles.bookTagline}>“{tagline}”</Text> : null}
+                          {book.keywords?.length ? (
+                            <View style={styles.keywordRow}>
+                              {book.keywords.map((keyword) => <Text key={keyword} style={styles.keyword}>#{keyword.replace(/\s+/g, '')}</Text>)}
+                            </View>
+                          ) : <Text style={styles.keywordPending}>Keywords are not available yet.</Text>}
+                          {onRampText && isOnRampVisible ? (
+                            <View ref={onRampRef} style={styles.onRampSection}>
+                              <Text style={styles.noteLabel}>YOUR 30-SECOND READ</Text>
+                              <Text accessibilityLiveRegion="polite" style={styles.onRampText}>{onRampText}</Text>
+                            </View>
+                          ) : null}
+                          {onRampError ? <Text accessibilityRole="alert" style={styles.onRampError}>{onRampError}</Text> : null}
                           {chartSignals.length > 0 && (
                             <View style={styles.bookChartSignals}>
                               {chartSignals.map((signal) => (
@@ -1093,73 +1239,10 @@ export default function DiscoverScreen() {
                                       {signal.marketCode} · {signal.listName} · #{signal.rank} · {formatSignalDate(signal.chartDate)}
                                     </Text>
                                   </View>
-                                  {signal.chartKind === 'reader_trend' ? (
-                                    <Pressable
-                                      accessibilityRole="link"
-                                      accessibilityLabel={`View ${book.title} on Open Library`}
-                                      onPress={() => void Linking.openURL(signal.sourceUrl)}
-                                      style={styles.chartSourceLink}
-                                    >
-                                      <ExternalLink color={colors.brandMuted} size={15} />
-                                    </Pressable>
-                                  ) : null}
                                 </View>
                               ))}
                             </View>
                           )}
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel="Short Take. Tap to expand or collapse."
-                            accessibilityState={{ expanded: shortTakeExpanded }}
-                            onPress={() => setShortTakeExpanded((expanded) => !expanded)}
-                            style={styles.shortTake}
-                          >
-                            <View style={styles.shortTakeHeader}>
-                              <Text style={styles.shortTakeLabel}>THE SHORT TAKE</Text>
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={isOnRampLoading
-                                  ? 'Generating a 30-second read'
-                                  : onRampText
-                                    ? isOnRampVisible ? 'Hide 30-second read' : 'Show 30-second read'
-                                    : 'Generate a 30-second read'}
-                                accessibilityState={{ expanded: isOnRampVisible }}
-                                disabled={isOnRampLoading || syncStatus === 'loading'}
-                                onPress={(event) => {
-                                  event.stopPropagation();
-                                  handleOnRampToggle();
-                                }}
-                                style={({ pressed }) => [styles.onRampButton, onRampText && isOnRampVisible && styles.onRampButtonActive, (isOnRampLoading || syncStatus === 'loading') && styles.actionDisabled, pressed && styles.actionPressed]}
-                              >
-                                {onRampText
-                                  ? isOnRampVisible ? <ChevronUp color={colors.brand} size={14} /> : <ChevronDown color={colors.brand} size={14} />
-                                  : <Sparkles color={colors.brand} size={14} />}
-                                <Text style={styles.onRampButtonText}>{isOnRampLoading ? 'Thinking…' : '30s read'}</Text>
-                              </Pressable>
-                            </View>
-                            {book.tagline ? (
-                              <View style={styles.bookTaglineRow}>
-                                <View style={styles.bookTaglineRule} />
-                                <Text style={styles.bookTagline}>“{book.tagline}”</Text>
-                              </View>
-                            ) : null}
-                            <Text numberOfLines={shortTakeExpanded ? undefined : 2} style={styles.bookNote}>{book.note}</Text>
-                            <View style={styles.expandNote}>
-                              <Text style={styles.expandNoteText}>{shortTakeExpanded ? 'Show less' : 'Read more'}</Text>
-                            </View>
-                            {book.keywords?.length ? (
-                              <View style={styles.keywordRow}>
-                                {book.keywords.map((keyword) => <Text key={keyword} style={styles.keyword}>#{keyword.replace(/\s+/g, '')}</Text>)}
-                              </View>
-                            ) : <Text style={styles.keywordPending}>Keywords are not available yet.</Text>}
-                          </Pressable>
-                          {onRampText && isOnRampVisible ? (
-                            <View ref={onRampRef} style={styles.onRampSection}>
-                              <Text style={styles.noteLabel}>YOUR 30-SECOND READ</Text>
-                              <Text accessibilityLiveRegion="polite" style={styles.onRampText}>{onRampText}</Text>
-                            </View>
-                          ) : null}
-                          {onRampError ? <Text accessibilityRole="alert" style={styles.onRampError}>{onRampError}</Text> : null}
                           {book.pillar === 'screen' ? <View style={styles.adaptationSection}>
                             <Pressable
                               accessibilityRole="button"
@@ -1169,10 +1252,13 @@ export default function DiscoverScreen() {
                               style={styles.adaptationHeader}
                             >
                               <Tv color={colors.secondary} size={14} />
-                              <Text style={styles.noteLabel}>ON SCREEN</Text>
+                              <Text style={styles.noteLabel}>{book.adaptations?.[0]?.format.toUpperCase() ?? 'ON SCREEN'}</Text>
                               <Text style={styles.adaptationSummary} numberOfLines={1}>
-                                {book.adaptations?.length ? book.adaptations[0].title : 'No details yet'}
+                                {book.adaptations?.length
+                                  ? `${book.adaptations[0].title}${book.adaptations[0].releaseYear ? ` (${book.adaptations[0].releaseYear})` : ''}`
+                                  : 'No details yet'}
                               </Text>
+                              {book.adaptations?.[0]?.tmdbId ? <Text style={styles.tmdbBadge}>TMDb</Text> : null}
                               {adaptationsExpanded ? <ChevronUp color={colors.brandDeep} size={16} /> : <ChevronDown color={colors.brandDeep} size={16} />}
                             </Pressable>
                             {adaptationsExpanded && (book.adaptations?.length ? book.adaptations.map((adaptation) => (
@@ -1204,45 +1290,47 @@ export default function DiscoverScreen() {
                               <Text style={styles.tmdbAttribution}>This product uses the TMDB API but is not endorsed or certified by TMDB.</Text>
                             ) : null}
                           </View> : null}
+                      </Animated.View>
                           <View style={styles.bookActionButtons}>
                             <Pressable
                               accessibilityRole="button"
-                              disabled={syncStatus === 'loading' || isSaving}
-                              onPress={() => void handleAction('read')}
-                              style={({ pressed }) => [styles.readActionButton, (syncStatus === 'loading' || isSaving) && styles.actionDisabled, pressed && styles.actionPressed]}
-                            >
-                              <Check color={colors.brandContrast} size={16} />
-                              <Text style={styles.readActionButtonText}>Already read</Text>
-                            </Pressable>
-                            <Pressable
-                              accessibilityRole="button"
-                              disabled={syncStatus === 'loading' || isSaving}
+                              disabled={syncStatus === 'loading' || isSaving || isTransitioning}
                               onPress={() => void handleAction('freeze')}
                               style={({ pressed }) => [styles.snoozeActionButton, (syncStatus === 'loading' || isSaving) && styles.actionDisabled, pressed && styles.actionPressed]}
                             >
-                              <Clock3 color={colors.goldDark} size={16} />
+                              <Clock3 color={colors.brandMuted} size={16} />
                               <Text style={styles.snoozeActionButtonText}>Snooze</Text>
                             </Pressable>
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={isOnRampLoading
+                                ? 'Generating a 30-second read'
+                                : onRampText
+                                  ? isOnRampVisible ? 'Hide 30-second read' : 'Show 30-second read'
+                                  : 'Generate a 30-second read'}
+                              accessibilityState={{ expanded: isOnRampVisible, busy: isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning, disabled: isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning }}
+                              aria-busy={isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning}
+                              disabled={isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning}
+                              onPress={handleOnRampToggle}
+                              style={({ pressed }) => [styles.onRampButton, (isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning) && styles.actionDisabled, pressed && styles.actionPressed]}
+                            >
+                              {isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning
+                                ? <ActivityIndicator size="small" color={colors.brandContrast} />
+                                : <Sparkles color={colors.brandContrast} size={14} />}
+                              <Text style={styles.onRampButtonText}>{isOnRampLoading ? 'Preparing…' : syncStatus === 'loading' || isSaving || isTransitioning ? 'Waiting…' : '30s read'}</Text>
+                            </Pressable>
+                            <Pressable
+                              accessibilityRole="button"
+                              disabled={syncStatus === 'loading' || isSaving || isTransitioning}
+                              onPress={() => void handleAction('read')}
+                              style={({ pressed }) => [styles.readActionButton, (syncStatus === 'loading' || isSaving) && styles.actionDisabled, pressed && styles.actionPressed]}
+                            >
+                              <Check color={colors.brand} size={16} />
+                              <Text style={styles.readActionButtonText}>Already read</Text>
+                            </Pressable>
                           </View>
-                        </View>
-                        <Animated.View
-                          pointerEvents="none"
-                          accessible={false}
-                          accessibilityElementsHidden
-                          importantForAccessibility="no-hide-descendants"
-                          aria-hidden
-                          style={[styles.indicatorOverlay, indicatorStyle]}
-                        >
-                          {ACTIONS.filter(({ id }) => id === 'tbr' || id === 'next').map(({ id, label, color, icon: Icon }) => (
-                            <View key={id} style={[styles.directionIndicator, id === 'tbr' ? styles.indicator_tbr : styles.indicator_next, id === 'next' && !canGoNext && styles.actionDisabled]}>
-                              <Icon color={color} size={16} />
-                              <Text style={styles.indicatorText}>{label}</Text>
-                            </View>
-                          ))}
-                        </Animated.View>
-                      </Animated.View>
-                    </GestureDetector>
-                  </>
+                    </View>
+                  </View>
                 ) : selectedPillar ? (
                   <View style={styles.emptyState}>
                     <View style={styles.emptyIcon}><BookOpen color={colors.brandMuted} size={24} /></View>
@@ -1261,7 +1349,7 @@ export default function DiscoverScreen() {
             {isWide && (
               <View style={styles.pageFooter}>
                 <Text style={styles.footerCopy}>A GOOD BOOK IS A CHANGE OF PERSPECTIVE.</Text>
-                <Text style={styles.footerCopy}>BOOQUIP <Text style={styles.issueDot}>·</Text> FIELD NOTES</Text>
+                <Text style={styles.footerCopy}>BOOQUIP</Text>
               </View>
             )}
           </ScrollView>
@@ -1278,7 +1366,7 @@ export default function DiscoverScreen() {
               <BottomTab label="Quip" active={section === 'quip'} onPress={() => setSection('quip')} icon={MessageCircle} />
               <BottomTab label="To read" count={tbrIds.length} active={section === 'book' && screen === 'tbr'} onPress={() => { setSection('book'); setScreen('tbr'); }} icon={Bookmark} />
               <BottomTab label="Finished" count={readIds.length} active={section === 'book' && screen === 'read'} onPress={() => { setSection('book'); setScreen('read'); }} icon={Check} />
-              <BottomTab label="Snoozed" active={section === 'book' && screen === 'snoozed'} onPress={() => { setSection('book'); setScreen('snoozed'); }} icon={Clock3} />
+              <BottomTab label="Snoozed" count={frozenBooks.length} active={section === 'book' && screen === 'snoozed'} onPress={() => { setSection('book'); setScreen('snoozed'); }} icon={Clock3} />
             </View>
           )}
         </View>
@@ -1357,21 +1445,17 @@ const styles = StyleSheet.create({
   hubSectionTitle: { color: colors.ink, fontSize: type.sectionTitle, lineHeight: 30, fontWeight: '700', marginTop: 4 },
   hubSectionDescription: { color: colors.secondary, fontSize: type.bodyMedium, lineHeight: 19, marginTop: 5, maxWidth: 450 },
   contentList: { flex: 1 },
-  content: { width: '100%', maxWidth: 1050, alignSelf: 'center', paddingHorizontal: 56, paddingTop: 43, paddingBottom: 24 },
-  contentMobile: { paddingHorizontal: 20, paddingTop: spacing.sm, paddingBottom: 28 },
-  pageHeading: { marginBottom: 28 },
+  content: pageLayout.content,
+  pageHeading: pageLayout.heading,
   headingCopy: { minWidth: 0, width: '100%' },
-  headingEyebrowRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginBottom: 8 },
+  headingEyebrowRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs },
   syncStatusRow: { minHeight: 34, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: spacing.xs, alignSelf: 'flex-start', marginTop: -10, marginBottom: 22, paddingHorizontal: 11, borderRadius: 18, backgroundColor: colors.brandPale },
   syncDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.quiet },
   syncDotConnected: { backgroundColor: colors.brand },
   syncDotError: { backgroundColor: colors.danger },
   syncStatusText: { flexShrink: 1, color: colors.brandMuted, fontSize: type.bodySmall, fontWeight: '600' },
-  eyebrow: { color: colors.brand, fontSize: type.bodySmall, fontWeight: '700', letterSpacing: 0.8 },
-  pageTitle: { color: colors.inkStrong, fontSize: type.display, lineHeight: 39, fontWeight: '700', letterSpacing: -0.5 },
-  editorialTitle: { fontFamily: 'Newsreader_400Regular', fontWeight: '400' },
-  issueMark: { color: colors.secondary, fontSize: type.label, fontWeight: '500', letterSpacing: 0.8 },
-  issueDot: { color: colors.warm },
+  eyebrow: pageLayout.eyebrow,
+  pageTitle: pageLayout.title,
   pillarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
   sectionLabel: { color: colors.secondary, fontSize: type.caption, fontWeight: '700', letterSpacing: 0.65 },
   stackCount: { color: colors.quiet, fontSize: type.label, fontWeight: '700', letterSpacing: 0.8 },
@@ -1407,45 +1491,35 @@ const styles = StyleSheet.create({
   pillarButtonDisabled: { opacity: 0.62 },
   pillarButtonText: { color: colors.body, fontSize: type.footnote, fontWeight: '600' },
   pillarButtonTextActive: { color: colors.brandContrast },
-  cardMetaRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xxs, marginBottom: 8 },
-  cardPosition: { color: colors.brandMuted, fontSize: type.bodySmall, fontStyle: 'italic' },
   bookChartSignals: { gap: 7, marginTop: 13 },
   bookChartSignal: { minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: spacing.xs, paddingVertical: 5, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 4, backgroundColor: colors.blueSoft },
   bookChartSignalCopy: { flex: 1, minWidth: 0 },
   bookChartSignalType: { color: colors.blueMuted, fontSize: type.tiny, lineHeight: 12, fontWeight: '800' },
   bookChartSignalTrend: { color: colors.brand },
   bookChartSignalMeta: { color: colors.muted, fontSize: type.tiny, lineHeight: 12, marginTop: 1 },
-  chartSourceLink: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  bookCard: { maxWidth: 860, width: '100%', alignSelf: 'center', backgroundColor: colors.surfaceWarm, borderWidth: 2, borderColor: colors.borderStrong, borderRadius: 24, shadowColor: colors.forest, shadowOpacity: 0.05, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
-  bookHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.sm },
-  bookHeaderText: { flex: 1, minWidth: 0 },
-  coverFrame: { width: 72, height: 108, position: 'relative', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderRadius: radii.sm },
+  bookFeature: { maxWidth: 560, width: '100%', alignSelf: 'center' },
+  bookGestureArea: { position: 'relative' },
+  bookHeader: { width: '75%', maxWidth: 360, alignSelf: 'center', alignItems: 'center', paddingTop: spacing.md, paddingBottom: spacing.xs },
+  bookHeaderText: { alignItems: 'center', width: '100%' },
+  coverShadow: { width: '80%', maxWidth: 240, shadowColor: colors.shadow, shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  coverFrame: { width: '100%', aspectRatio: 2 / 3, position: 'relative', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderRadius: radii.md },
   coverFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, gap: 6 },
   coverFallbackTitle: { color: colors.white, fontSize: type.footnote, fontWeight: '700', textAlign: 'center', lineHeight: 16 },
   coverFallbackAuthor: { color: colors.white, fontSize: type.label, textAlign: 'center' },
   coverImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
-  bookInfo: { minWidth: 0, paddingHorizontal: spacing.md, paddingBottom: spacing.md },
-  bookYear: { color: colors.brandMuted, fontSize: type.footnote, fontWeight: '600' },
-  bookTitle: { color: colors.inkStrong, fontFamily: 'Newsreader_700Bold', fontSize: 26, lineHeight: 29, marginTop: spacing.xs },
-  bookAuthor: { color: colors.secondary, fontSize: type.bodyMedium, marginTop: 7 },
+  bookInfo: { minWidth: 0, paddingBottom: spacing.md },
+  bookTitle: { color: colors.inkStrong, fontFamily: 'Newsreader_700Bold', fontSize: 26, lineHeight: 30, marginTop: spacing.md, textAlign: 'center' },
+  bookAuthor: { color: colors.brandMuted, fontSize: type.bodyMedium, fontWeight: '600', marginTop: 5, textAlign: 'center' },
   noteLabel: { color: colors.muted, fontSize: type.label, fontWeight: '700', letterSpacing: 1.1 },
-  shortTake: { borderWidth: 1, borderColor: '#cbded5', borderRadius: radii.md, backgroundColor: '#f0f8f3', padding: spacing.md },
-  shortTakeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs },
-  shortTakeLabel: { color: colors.brandDeep, fontSize: type.footnote, fontWeight: '700', letterSpacing: 0.6 },
-  bookTaglineRow: { flexDirection: 'row', alignItems: 'stretch', gap: spacing.xs, marginTop: spacing.sm },
-  bookTaglineRule: { width: 3, borderRadius: 2, backgroundColor: colors.brand },
-  bookTagline: { flex: 1, color: colors.inkStrong, fontFamily: 'Newsreader_700Bold', fontSize: type.bodyLarge, fontStyle: 'italic', fontWeight: '700', lineHeight: 24 },
-  bookNote: { color: colors.body, fontSize: type.bodyLarge, lineHeight: 23, marginTop: 9 },
-  expandNote: { alignSelf: 'flex-start', paddingVertical: spacing.xxs },
-  expandNoteText: { color: colors.brandDeep, fontSize: type.footnote, fontWeight: '700' },
-  keywordRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
-  keyword: { color: colors.brandMuted, fontSize: type.caption, fontWeight: '700', paddingHorizontal: spacing.xs, paddingVertical: spacing.xxs, borderRadius: radii.sm, backgroundColor: colors.page },
-  keywordPending: { color: colors.secondary, fontSize: type.caption, marginTop: spacing.xs },
-  bookActionButtons: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm },
-  readActionButton: { minHeight: 42, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radii.md, backgroundColor: colors.brandStrong },
-  readActionButtonText: { color: colors.brandContrast, fontSize: type.bodySmall, fontWeight: '700' },
-  snoozeActionButton: { minHeight: 42, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, borderWidth: 1, borderColor: colors.goldSoft, borderRadius: radii.md, backgroundColor: colors.goldSoft },
-  snoozeActionButtonText: { color: colors.goldDark, fontSize: type.bodySmall, fontWeight: '700' },
+  bookTagline: { color: colors.inkStrong, fontFamily: 'Newsreader_700Bold', fontSize: type.bodyLarge, fontStyle: 'italic', fontWeight: '700', lineHeight: 22, textAlign: 'center', marginTop: spacing.xs },
+  keywordRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.xs, marginTop: spacing.xs },
+  keyword: { color: colors.brandMuted, fontSize: type.caption, fontWeight: '700', paddingHorizontal: spacing.sm, paddingVertical: spacing.xxs, borderRadius: radii.pill, backgroundColor: colors.goldSoft },
+  keywordPending: { color: colors.secondary, fontSize: type.caption, marginTop: spacing.xs, textAlign: 'center' },
+  bookActionButtons: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.md },
+  readActionButton: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: spacing.xxs, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.md, backgroundColor: colors.surfaceWarm },
+  readActionButtonText: { color: colors.brandDeep, fontSize: type.bodySmall, fontWeight: '700' },
+  snoozeActionButton: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: spacing.xxs, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.md, backgroundColor: colors.surfaceWarm },
+  snoozeActionButtonText: { color: colors.brandDeep, fontSize: type.bodySmall, fontWeight: '700' },
   adaptationSection: { marginTop: spacing.md, paddingHorizontal: spacing.sm, paddingVertical: 4, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.md, backgroundColor: colors.page },
   adaptationHeader: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   adaptationSummary: { flex: 1, color: colors.inkStrong, fontSize: type.bodyMedium, fontWeight: '600' },
@@ -1457,19 +1531,17 @@ const styles = StyleSheet.create({
   adaptationEmpty: { color: colors.muted, fontSize: type.caption, lineHeight: 15 },
   tmdbLink: { minHeight: 28, justifyContent: 'center', paddingHorizontal: 6 },
   tmdbLinkText: { color: colors.brandMuted, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.4 },
+  tmdbBadge: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: colors.brandSoft },
   tmdbAttribution: { color: colors.quiet, fontSize: type.micro, lineHeight: 10, marginTop: 8 },
   onRampSection: { marginTop: spacing.lg, paddingTop: 13, borderTopWidth: 1, borderTopColor: colors.border },
-  onRampButton: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: 22, backgroundColor: colors.page },
-  onRampButtonActive: { borderColor: colors.brand, backgroundColor: colors.brandPale },
-  onRampButtonText: { color: colors.brandStrong, fontSize: type.footnote, fontWeight: '700' },
+  onRampButton: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: spacing.xxs, borderRadius: radii.md, backgroundColor: colors.brandStrong },
+  onRampButtonText: { color: colors.brandContrast, fontSize: type.bodySmall, fontWeight: '700' },
   onRampText: { color: colors.body, fontSize: type.bodyMedium, lineHeight: 20, marginTop: 10 },
   onRampError: { color: colors.danger, fontSize: type.bodySmall, lineHeight: 16, marginTop: 8 },
   actionDisabled: { opacity: 0.55 },
   actionPressed: { backgroundColor: colors.brandSoft, transform: [{ scale: 0.98 }] },
-  indicatorOverlay: { ...StyleSheet.absoluteFillObject },
-  directionIndicator: { position: 'absolute', maxWidth: '40%', minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 4, borderRadius: radii.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface },
-  indicator_tbr: { right: 8, top: '45%', backgroundColor: '#d6fbed', borderColor: '#4bdfa6' },
-  indicator_next: { left: 8, top: '45%' },
+  indicatorOverlay: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.xs },
+  directionIndicator: { maxWidth: '48%', minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: spacing.xs, paddingVertical: 4, borderRadius: radii.pill, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceWarm },
   indicatorText: { color: colors.body, fontSize: type.bodySmall, fontWeight: '700', textAlign: 'center', flexShrink: 1 },
   emptyState: { maxWidth: 860, width: '100%', minHeight: 300, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', padding: 30, borderWidth: 1, borderColor: colors.border, borderRadius: radii.lg, backgroundColor: colors.surface },
   emptyIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
@@ -1486,6 +1558,7 @@ const styles = StyleSheet.create({
   wakeButtonText: { color: colors.goldDark, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.4 },
   returnBookButton: { minWidth: 58, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: 6, borderRadius: 4, backgroundColor: colors.brandSoft },
   returnBookButtonText: { color: colors.brandStrong, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.4 },
+  finishedBookAction: { alignSelf: 'stretch' },
   quipToggle: { minWidth: 82, height: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 7, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 4, backgroundColor: colors.surfaceMuted },
   quipToggleEnabled: { borderColor: colors.brandSoft, backgroundColor: colors.brandSoft },
   quipToggleLabel: { color: colors.secondary, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.35 },

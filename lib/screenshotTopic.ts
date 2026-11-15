@@ -1,10 +1,11 @@
 import { supabase } from '@/lib/supabase';
 
-export async function extractScreenshotTopic(imageBase64: string, mimeType: string) {
+export async function extractScreenshotTopic(imageBase64: string, mimeType: string, signal?: AbortSignal) {
   if (!supabase) throw new Error('Connect Supabase to read a screenshot.');
 
   const { data, error } = await supabase.functions.invoke('screenshot-topic-reader', {
     body: { image: imageBase64, mimeType },
+    signal,
   });
 
   if (error) throw new Error(error.message || 'Could not read the screenshot.');

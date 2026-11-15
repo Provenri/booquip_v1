@@ -9,15 +9,31 @@
 ## Product Experience
 
 ### Your Library
-The landing page keeps the **Your Library** banner and presents two peer sections, **Book** and **Quip**. Neither section is selected by default.
+The app opens on **Book**. Tap the booquip logo to open the **Your Library** hub with its **Book** and **Quip** sections.
 
 ### Book
-Book discovery has three top-level categories: **Screen**, **Charts**, and **Classics**. Search and Surprise Me find active catalog titles; book cards retain the three actions **Save to TBR**, **Already read**, and **Snooze 90 days**. The category wheel and nested shelves are not used.
+Book discovery has three top-level categories: **Screen**, **Charts**, and **Classics**. Screen is selected initially; search finds available titles in the selected category and Surprise Me chooses from all categories. Touch the cover, title, or author to reveal the directions: swipe left for the next book or right to move the book to **To read**. Screen readers can access both actions on the book. Use the separate **Snooze** and **Already read** buttons for those actions. Completed actions provide haptic feedback on supported devices.
+
+Mobile navigation uses **Book**, **Quip**, **To read**, **Finished**, and **Snoozed** tabs. Book headings use the bundled Newsreader font; counts, covers, and adaptation details come from the real catalog and shelves.
+
+Discovery preloads the next book's cover, including hosted Supabase covers. Covers use Expo Image's memory and disk cache on native devices; web caching follows the browser and image server's cache rules. Hosted covers use content-hashed URLs, so replacements get fresh cache entries without clearing cached images. Image recycling and failure states follow the cover URL rather than the book ID, so a failed old image does not hide its replacement. Adding Expo Image requires a new development or preview build.
+
+Taglines and keywords sit directly below the author, with category details above the action buttons. Swipe guidance has its own reserved row above the cover. Book changes use a quick fade-in without an extra waiting period. Tap **30s read** to generate an AI on-ramp, then tap it again to hide or show the generated text. A spinner and **Preparing…** indicate generation; **Waiting…** indicates shelf syncing or a book transition. Duplicate requests are blocked, changing books cancels the old request, and a stalled request shows a retryable error after 30 seconds.
+
+Pull down on Book, Quip, Library, or any shelf page to reload catalog metadata, category availability, rankings, and shelf state without discarding a Quip draft or existing source selections. Refresh failures are shown in the page; local preview rechecks its in-memory state.
 
 Screen books remain active. Former Civilization/Digital titles are archived rather than deleted, preserving existing TBR, Read, and snooze records while removing them from new discovery. Charts and Classics start empty for future curation.
 
 ### Quip
 Quip opens the trend-reply workflow from the Read shelf. Readers can use one Read book or their entire Read shelf as context, paste a post or topic, edit the generated reply, and copy it. Nothing is published automatically.
+
+The **Quip Seed** panel offers **Write · Idea · Trends · Screenshot**, in a 2×2 layout on narrow screens and one row when the panel is at least 500 pixels wide. **Idea** considers the currently selected Quip-enabled books and fills the editable seed with an idea of at most 200 characters. It connects books only when their supplied summaries support a meaningful connection; otherwise it uses one strong standalone idea. It does not send the existing seed or claim to analyze full book texts. After checking consent, tap Idea or **Generate Idea** to generate another suggestion; successful generation replaces the existing seed. Enable at least one source book first. Source-book checkboxes update locally without waiting for a network request, and only the changed book row rerenders. Finished-shelf Quip switches show per-book saving feedback instead of blocking every switch while one save is pending.
+
+Screenshots are previewed locally before any AI extraction request. Only **Send to OpenAI** uploads the reviewed image; Cancel discards the pending selection. Native devices also offer **Choose & crop** (iOS uses a square crop); on web, crop or redact in an external editor before choosing the image. Cropping is optional and is not anonymization. Idea and Quip generation require the initially unchecked **I agree to send Quip inputs to OpenAI** checkbox. **Read more…** expands the processing explanation below Style, including which inputs each action sends and the warning to remove personal or sensitive information. Consent lasts only while the Quip workspace remains mounted, is not stored as a legal consent record, and can be unchecked between requests. Screenshot uploads retain their separate review and confirmation. These controls provide disclosure and user review, not automatic PII detection or redaction, guaranteed provider deletion, or changes to provider retention settings.
+
+Choose a **Stance** (Pro, Neutral, Cons) and **Style** (Natural, Curious, Reflective, Witty, Challenging, Practical, Empathetic), then press the compact **Generate Quip** button. Neutral + Natural retains the original writing behavior. Only currently selected books are submitted for generation and relevance assessment in a single AI request. After generation, expand the existing book section to see High, Medium, Low match, or Insufficient information inside each selected book card. These are AI estimates based on available book summaries, independent of stance/style, not claims that a book contributed to the wording or that its full text was assessed. Editing the seed clears the results; deselecting a book removes its flag, and newly selected books are assessed on the next generation. Changed selections or preferences mark an existing draft as needing regeneration. Inputs are locked during generation, and incomplete or stale responses are not displayed as new results.
+
+Idea and Quip actions immediately show a spinner with **Finding an idea…** or **Generating…**; **Waiting…** indicates a conflicting screenshot operation or shelf sync. Duplicate submissions and conflicting inputs are disabled while unrelated navigation stays available. Requests have a 60-second client deadline, including stalled transports, and show explicit errors with retry available afterward.
 
 ### 🤖 BooQuip AI Companion
 * **Intellectual On-Ramp:** Translates dense historical classics into 30-second modern analogies right on the reveal card.

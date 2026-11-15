@@ -22,6 +22,7 @@
     "expo-dev-client": "~6.0.21",
     "expo-font": "~14.0.12",
     "expo-haptics": "~15.0.8",
+    "expo-image": "~3.0.11",
     "expo-image-picker": "~17.0.11",
     "expo-linking": "~8.0.0",
     "expo-router": "~6.0.0",
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.10",
+    "sharp": "^0.35.5",
     "typescript": "~5.9.2"
   }
 }

@@ -4,6 +4,7 @@ dist/
 web-build/
 __pycache__/
 *.pyc
+pipeline/.cover-import/
 .env*
 !.env.example
 supabase/.branches/

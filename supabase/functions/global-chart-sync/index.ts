@@ -2,6 +2,10 @@
 import { XMLParser } from 'npm:fast-xml-parser@5.12.1';
 // @ts-ignore Deno requires explicit TypeScript extensions.
 import { validKeywords } from './keywords.ts';
+// @ts-ignore Deno requires explicit TypeScript extensions.
+import { importApprovedCover } from './book-covers.ts';
+// @ts-ignore Deno requires explicit TypeScript extensions.
+import { generateChartTaglines } from './taglines.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -170,6 +174,13 @@ edgeRuntime.serve(async (request: Request) => {
       openLibrary: { configured: Boolean(edgeRuntime.env.get('OPENLIBRARY_USER_AGENT')), trendSources: 0, trendEntries: 0, links: 0, snapshots: 0, errors: 0 },
       googleTrends: { feeds: 0, topics: 0, newsItems: 0, summaries: 0, errors: 0 },
       keywords: { configured: Boolean(edgeRuntime.env.get('OPENAI_API_KEY')), generated: 0, errors: 0 },
+      covers: await importApprovedCover(supabaseUrl, supabaseHeaders),
+      taglines: await generateChartTaglines(
+        supabaseUrl,
+        supabaseHeaders,
+        edgeRuntime.env.get('OPENAI_API_KEY'),
+        edgeRuntime.env.get('OPENAI_BOOK_TAGLINE_MODEL') ?? 'gpt-4o-mini',
+      ),
     };
 
     const trendParser = new XMLParser({ ignoreAttributes: true, removeNSPrefix: true });
@@ -692,7 +703,7 @@ edgeRuntime.serve(async (request: Request) => {
       }
     }
 
-    const hasErrors = report.nyt.errors > 0 || report.openLibrary.errors > 0 || report.keywords.errors > 0;
+    const hasErrors = report.nyt.errors > 0 || report.openLibrary.errors > 0 || report.keywords.errors > 0 || report.covers.errors > 0 || report.taglines.errors > 0;
     return jsonResponse(hasErrors ? 207 : 200, report);
   } catch {
     return jsonResponse(502, { error: 'Chart sync failed.' });

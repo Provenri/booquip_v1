@@ -1,19 +1,22 @@
 import { useState, type ReactNode } from 'react';
 import { BookOpen } from 'lucide-react-native';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { PILLARS, type Book } from '@/lib/books';
 import { colors, radii, spacing, type } from '@/constants/theme';
 
 export default function BookListCard({
   book,
   selected = false,
+  annotation,
   children,
 }: {
   book: Book;
   selected?: boolean;
+  annotation?: ReactNode;
   children?: ReactNode;
 }) {
-  const [coverFailed, setCoverFailed] = useState(false);
+  const [failedCoverUri, setFailedCoverUri] = useState<string | null>(null);
   const coverUri = book.coverUrl ?? (book.isbn ? `https://covers.openlibrary.org/b/isbn/${book.isbn}-M.jpg` : null);
   const pillarLabel = PILLARS.find((pillar) => pillar.id === book.pillar)?.label ?? book.pillar;
 
@@ -21,11 +24,13 @@ export default function BookListCard({
     <View style={[styles.card, selected && styles.cardSelected]}>
       <View style={[styles.cover, { backgroundColor: book.color }]}>
         <BookOpen color={colors.white} size={19} />
-        {!coverFailed && coverUri ? (
+        {coverUri && failedCoverUri !== coverUri ? (
           <Image
             accessibilityLabel={`Cover of ${book.title}`}
-            onError={() => setCoverFailed(true)}
-            resizeMode="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={coverUri}
+            onError={() => setFailedCoverUri(coverUri)}
+            contentFit="cover"
             source={{ uri: coverUri }}
             style={styles.coverImage}
           />
@@ -39,6 +44,7 @@ export default function BookListCard({
         <Text numberOfLines={1} style={styles.bookTitle}>{book.title}</Text>
         <Text numberOfLines={1} style={styles.bookAuthor}>{book.author}</Text>
         <Text numberOfLines={1} style={styles.bookNote}>{book.note}</Text>
+        {annotation}
       </View>
       {children ? <View style={styles.accessory}>{children}</View> : null}
     </View>

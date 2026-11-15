@@ -79,3 +79,10 @@ export const type = {
   bookTitle: 29,
   display: 32,
 } as const;
+
+export const pageLayout = {
+  content: { width: '100%', maxWidth: 860, alignSelf: 'center', paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl },
+  heading: { marginBottom: spacing.md },
+  eyebrow: { color: colors.brand, fontSize: type.caption, fontWeight: '700', letterSpacing: 1.1 },
+  title: { color: colors.inkStrong, fontSize: 32, lineHeight: 40, fontFamily: 'Newsreader_700Bold', marginTop: 3 },
+} as const;
