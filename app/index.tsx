@@ -178,6 +178,7 @@ export default function DiscoverScreen() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(isSupabaseConfigured ? 'loading' : 'local');
   const [syncMessage, setSyncMessage] = useState('');
   const [isActionSaving, setIsSaving] = useState(false);
+  const [pendingBookAction, setPendingBookAction] = useState<'read' | 'freeze' | null>(null);
   const [pendingQuipIds, setPendingQuipIds] = useState<string[]>([]);
   const pendingQuipIdsRef = useRef(new Set<string>());
   const isSaving = isActionSaving || isRefreshing || pendingQuipIds.length > 0;
@@ -527,6 +528,7 @@ export default function DiscoverScreen() {
     }
     if (action !== 'next' && userId && isSupabaseConfigured) {
       setIsSaving(true);
+      if (action === 'read' || action === 'freeze') setPendingBookAction(action);
       try {
         const state = action === 'tbr' ? 'tbr' : action === 'read' ? 'read' : 'frozen';
         const freezeUntil = action === 'freeze'
@@ -539,9 +541,11 @@ export default function DiscoverScreen() {
         setSyncMessage('Could not save this action. The book remains in discovery; try again.');
         setSyncStatus('error');
         setIsSaving(false);
+        setPendingBookAction(null);
         return;
       }
       setIsSaving(false);
+      setPendingBookAction(null);
     }
     transitioningRef.current = true;
     setIsTransitioning(true);
@@ -607,6 +611,7 @@ export default function DiscoverScreen() {
   const swipeBookId = book?.id;
   const isWeb = Platform.OS === 'web';
   const markCardHeld = () => { webCardHeldRef.current = true; };
+  const markBookAsRead = () => { void actionRef.current('read'); };
   const cardGesture = Gesture.Pan()
     .enabled(Boolean(book) && syncStatus !== 'loading' && !isSaving && !isRefreshing && !isTransitioning)
     .activeOffsetX([-12, 12])
@@ -647,6 +652,12 @@ export default function DiscoverScreen() {
         resetCardPosition();
       }
     });
+  const readDoubleTapGesture = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd((_event, success) => {
+      if (success) scheduleOnRN(markBookAsRead);
+    });
+  const bookGesture = Gesture.Simultaneous(cardGesture, readDoubleTapGesture);
 
   const revealBook = (chosenBook: Book) => {
     setSection('book');
@@ -1150,25 +1161,29 @@ export default function DiscoverScreen() {
                     </Pressable>;
                   })}
                 </View>
+                <Animated.View pointerEvents="none" style={[styles.doubleTapHintRow, indicatorStyle]}>
+                  <Text numberOfLines={1} style={styles.doubleTapHintText}>Double tap if you&apos;ve read this book</Text>
+                </Animated.View>
 
                 {book ? (
                   <View style={styles.bookFeature}>
                     <View style={styles.bookGestureArea}>
-                      <GestureDetector gesture={cardGesture} touchAction="pan-y">
+                      <GestureDetector gesture={bookGesture} touchAction="pan-y">
                         <Animated.View
                           ref={bookCardRef}
                           style={[styles.bookHeader, bookCardStyle]}
                           accessible
                           accessibilityRole="adjustable"
                           accessibilityLabel={`${book.title} by ${book.author}`}
-                          accessibilityHint="Swipe left for the next book or right to move this book to your reading shelf."
+                          accessibilityHint="Double-tap to mark this book as already read. Swipe left for the next book or right to move this book to your reading shelf."
                           accessibilityActions={[
                             ...(canGoNext ? [{ name: 'next', label: 'Next book' }] : []),
                             { name: 'tbr', label: 'Move to shelf' },
+                            { name: 'read', label: 'Already read' },
                           ]}
                           onAccessibilityAction={(event) => {
                             const action = event.nativeEvent.actionName;
-                            if (action === 'next' || action === 'tbr') void handleAction(action);
+                            if (action === 'next' || action === 'tbr' || action === 'read') void handleAction(action);
                           }}
                         >
                           <View style={styles.coverRow}>
@@ -1301,12 +1316,16 @@ export default function DiscoverScreen() {
                           <View style={styles.bookActionButtons}>
                             <Pressable
                               accessibilityRole="button"
+                              accessibilityLabel={pendingBookAction === 'freeze' ? 'Waiting to snooze this book' : 'Snooze'}
+                              accessibilityState={{ busy: pendingBookAction === 'freeze', disabled: syncStatus === 'loading' || isSaving || isTransitioning }}
                               disabled={syncStatus === 'loading' || isSaving || isTransitioning}
                               onPress={() => void handleAction('freeze')}
-                              style={({ pressed }) => [styles.snoozeActionButton, (syncStatus === 'loading' || isSaving) && styles.actionDisabled, pressed && styles.actionPressed]}
+                              style={({ pressed }) => [styles.snoozeActionButton, (syncStatus === 'loading' || isSaving || isTransitioning) && styles.actionDisabled, pressed && styles.actionPressed]}
                             >
-                              <Clock3 color={colors.brandMuted} size={16} />
-                              <Text style={styles.snoozeActionButtonText}>Snooze</Text>
+                              {pendingBookAction === 'freeze'
+                                ? <ActivityIndicator size="small" color={colors.brandMuted} />
+                                : <Clock3 color={colors.brandMuted} size={16} />}
+                              <Text style={styles.snoozeActionButtonText}>{pendingBookAction === 'freeze' ? 'Waiting…' : 'Snooze'}</Text>
                             </Pressable>
                             <Pressable
                               accessibilityRole="button"
@@ -1315,25 +1334,29 @@ export default function DiscoverScreen() {
                                 : onRampText
                                   ? isOnRampVisible ? 'Hide 30-second read' : 'Show 30-second read'
                                   : 'Generate a 30-second read'}
-                              accessibilityState={{ expanded: isOnRampVisible, busy: isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning, disabled: isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning }}
-                              aria-busy={isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning}
+                              accessibilityState={{ expanded: isOnRampVisible, busy: isOnRampLoading, disabled: isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning }}
+                              aria-busy={isOnRampLoading}
                               disabled={isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning}
                               onPress={handleOnRampToggle}
                               style={({ pressed }) => [styles.onRampButton, (isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning) && styles.actionDisabled, pressed && styles.actionPressed]}
                             >
-                              {isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning
+                              {isOnRampLoading
                                 ? <ActivityIndicator size="small" color={colors.brandContrast} />
                                 : <Sparkles color={colors.brandContrast} size={14} />}
-                              <Text style={styles.onRampButtonText}>{isOnRampLoading ? 'Preparing…' : syncStatus === 'loading' || isSaving || isTransitioning ? 'Waiting…' : '30s read'}</Text>
+                              <Text style={styles.onRampButtonText}>{isOnRampLoading ? 'Preparing…' : '30s read'}</Text>
                             </Pressable>
                             <Pressable
                               accessibilityRole="button"
+                              accessibilityLabel={pendingBookAction === 'read' ? 'Waiting to mark this book as read' : 'Already read'}
+                              accessibilityState={{ busy: pendingBookAction === 'read', disabled: syncStatus === 'loading' || isSaving || isTransitioning }}
                               disabled={syncStatus === 'loading' || isSaving || isTransitioning}
                               onPress={() => void handleAction('read')}
-                              style={({ pressed }) => [styles.readActionButton, (syncStatus === 'loading' || isSaving) && styles.actionDisabled, pressed && styles.actionPressed]}
+                              style={({ pressed }) => [styles.readActionButton, (syncStatus === 'loading' || isSaving || isTransitioning) && styles.actionDisabled, pressed && styles.actionPressed]}
                             >
-                              <Check color={colors.brand} size={16} />
-                              <Text style={styles.readActionButtonText}>Already read</Text>
+                              {pendingBookAction === 'read'
+                                ? <ActivityIndicator size="small" color={colors.brand} />
+                                : <Check color={colors.brand} size={16} />}
+                              <Text style={styles.readActionButtonText}>{pendingBookAction === 'read' ? 'Waiting…' : 'Already read'}</Text>
                             </Pressable>
                           </View>
                     </View>
@@ -1466,7 +1489,7 @@ const styles = StyleSheet.create({
   pillarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
   sectionLabel: { color: colors.secondary, fontSize: type.caption, fontWeight: '700', letterSpacing: 0.65 },
   stackCount: { color: colors.quiet, fontSize: type.label, fontWeight: '700', letterSpacing: 0.8 },
-  categoryRow: { maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', gap: spacing.xs, marginBottom: 20 },
+  categoryRow: { maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', gap: spacing.xs, marginBottom: 4 },
   categoryButton: { flex: 1, minWidth: 0, minHeight: 64, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.lg, backgroundColor: colors.surfaceWarm },
   categoryButtonMobile: { minHeight: 54, paddingHorizontal: 6 },
   categoryRowMobile: { flexWrap: 'nowrap' },
@@ -1505,6 +1528,8 @@ const styles = StyleSheet.create({
   bookChartSignalTrend: { color: colors.brand },
   bookChartSignalMeta: { color: colors.muted, fontSize: type.tiny, lineHeight: 12, marginTop: 1 },
   bookFeature: { maxWidth: 560, width: '100%', alignSelf: 'center' },
+  doubleTapHintRow: { height: 16, alignItems: 'center', justifyContent: 'center' },
+  doubleTapHintText: { color: colors.brandMuted, fontSize: type.caption, fontWeight: '700' },
   bookGestureArea: { position: 'relative' },
   bookHeader: { width: '100%', alignSelf: 'center', alignItems: 'center', paddingTop: spacing.md, paddingBottom: spacing.xs },
   bookHeaderText: { alignItems: 'center', width: '75%', maxWidth: 360 },
