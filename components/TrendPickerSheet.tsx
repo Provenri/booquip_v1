@@ -20,6 +20,7 @@ export default function TrendPickerSheet({ visible, onClose, onSelect }: TrendPi
   const [trendTopics, setTrendTopics] = useState<QuipTrendTopic[]>([]);
   const [topicCountry, setTopicCountry] = useState<'ALL' | 'US' | 'UK'>('ALL');
   const [topicsStatus, setTopicsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const visibleTopics = trendTopics
     .filter((topic) => topicCountry === 'ALL' || topic.countryCode === topicCountry);
@@ -32,9 +33,10 @@ export default function TrendPickerSheet({ visible, onClose, onSelect }: TrendPi
   useEffect(() => {
     if (!visible) return;
     let active = true;
+    const controller = new AbortController();
     setTopicCountry('ALL');
     setTopicsStatus('loading');
-    void loadQuipTrendTopics()
+    void loadQuipTrendTopics(controller.signal)
       .then((topics) => {
         if (!active) return;
         setTrendTopics(topics);
@@ -45,8 +47,11 @@ export default function TrendPickerSheet({ visible, onClose, onSelect }: TrendPi
         setTrendTopics([]);
         setTopicsStatus('error');
       });
-    return () => { active = false; };
-  }, [visible]);
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [visible, loadAttempt]);
 
   return (
     <Modal visible={visible} transparent animationType={isCompact ? 'slide' : 'fade'} onRequestClose={onClose}>
@@ -83,7 +88,16 @@ export default function TrendPickerSheet({ visible, onClose, onSelect }: TrendPi
           {topicsStatus === 'loading' ? (
             <Text style={styles.hint}>Loading recent topics…</Text>
           ) : topicsStatus === 'error' ? (
-            <Text style={styles.hint}>Trend suggestions are unavailable right now. Close this and write the topic instead.</Text>
+            <View style={styles.loadError}>
+              <Text style={styles.hint}>Trend suggestions couldn’t load. Check your connection and try again.</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setLoadAttempt((attempt) => attempt + 1)}
+                style={styles.retryButton}
+              >
+                <Text style={styles.retryLabel}>RETRY</Text>
+              </Pressable>
+            </View>
           ) : displayedTopics.length > 0 ? (
             <FlashList
               style={styles.topicScroll}
@@ -122,8 +136,8 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(24, 39, 33, 0.42)' },
   overlayMobile: { justifyContent: 'flex-end', paddingHorizontal: 0 },
   backdrop: { ...StyleSheet.absoluteFillObject },
-  sheet: { width: '100%', maxWidth: 520, maxHeight: '88%', borderRadius: radii.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: spacing.lg, shadowColor: colors.shadow, shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 8 },
-  sheetMobile: { maxWidth: '100%', maxHeight: '92%', marginTop: 'auto', padding: 20, paddingBottom: 28, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderTopLeftRadius: 26, borderTopRightRadius: 26 },
+  sheet: { width: '100%', height: '82%', maxWidth: 520, maxHeight: '88%', borderRadius: radii.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: spacing.lg, shadowColor: colors.shadow, shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 8 },
+  sheetMobile: { height: '84%', maxWidth: '100%', maxHeight: '92%', marginTop: 'auto', padding: 20, paddingBottom: 28, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderTopLeftRadius: 26, borderTopRightRadius: 26 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   headerIcon: { width: 42, height: 42, borderRadius: radii.md, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' },
   closeButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21, backgroundColor: colors.surfaceMuted },
@@ -136,7 +150,10 @@ const styles = StyleSheet.create({
   countryTabLabel: { color: colors.secondary, fontSize: 11, fontWeight: '700' },
   countryTabLabelSelected: { color: colors.brandContrast },
   hint: { color: colors.muted, fontSize: 10, marginTop: 10 },
-  topicScroll: { marginTop: 10 },
+  loadError: { alignItems: 'flex-start', marginTop: 10 },
+  retryButton: { minHeight: 36, justifyContent: 'center', paddingHorizontal: spacing.sm, marginTop: spacing.xs, borderRadius: radii.pill, backgroundColor: colors.brandPale },
+  retryLabel: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '700' },
+  topicScroll: { flex: 1, minHeight: 0, marginTop: 10 },
   topicList: { gap: 8, paddingTop: 6, paddingBottom: 12 },
   topicCard: { minHeight: 66, justifyContent: 'center', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, backgroundColor: colors.surface },
   topicRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

@@ -22,6 +22,16 @@
 
 When Supabase is configured, the app loads book metadata from `public.books`, category labels from `public.pillars`, and adaptations from `public.book_adaptations`; the bundled data in `lib/books.ts` remains a local/offline fallback if Supabase is unavailable. The catalog contains 80 records: 30 active Screen books and 50 archived records retained for existing user shelves and history. Add future books and adaptations through migrations so configured clients share one source.
 
+## Book Taglines
+
+Discovery cards show a short, curated tagline above each book summary in emphasized type. The `book_taglines` migration adds the optional `public.books.tagline` field and seeds taglines for the curated catalog. Apply the latest database migrations before using this app version with Supabase; the bundled catalog also includes taglines for offline preview.
+
+## Book Keywords
+
+Discovery cards display three stored keywords when available. Apply the latest migrations and deploy `global-chart-sync` to enable keyword generation for existing books and new chart imports. The scheduled sync uses the server-side `OPENAI_API_KEY` and processes up to 25 pending books per run; `OPENAI_BOOK_KEYWORDS_MODEL` optionally selects a model. Books without sufficient information or a successful generation remain pending and are retried on later syncs. Offline preview does not generate keywords. Check the sync report's `keywords` section for generation errors.
+
+The hourly `global-chart-sync` job also requires the deployed function, the `CHART_SYNC_SECRET` function secret, and the `chart_sync_url` and `chart_sync_secret` Vault entries described by the scheduling migration. Until the migration is applied and the sync runs, the new keyword data is not available.
+
 ## TMDb Adaptation Matching
 
 `TMDB_API_KEY` is held as a Supabase Function secret. The one-time `tmdb-adaptation-sync` function searches only pending curated adaptations, sequentially with a 300 ms pause, and stores a TMDb ID only when media type, normalized title, and release year all match exactly. It then requests credits once for each exact match and caches only the first three credited names. It stores lookup/credits check times so completed records are not repeatedly queried. It does not retrieve posters, overviews, or provider listings, and the app makes no TMDb requests while users browse.

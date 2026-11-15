@@ -28,7 +28,7 @@ export async function loadCatalog(): Promise<Book[]> {
   const [bookResult, adaptationResult] = await Promise.all([
     supabase
       .from('books')
-      .select('id, title, author, published_year, isbn, pillar, note, cover_color, cover_url, is_active')
+      .select('id, title, author, published_year, isbn, pillar, tagline, note, cover_color, cover_url, is_active, keywords')
       .order('title', { ascending: true }),
     supabase
       .from('book_adaptations')
@@ -61,7 +61,9 @@ export async function loadCatalog(): Promise<Book[]> {
     year: row.published_year,
     isbn: row.isbn,
     pillar: row.pillar as Pillar,
+    tagline: row.tagline ?? undefined,
     note: row.note,
+    keywords: row.keywords ?? undefined,
     color: row.cover_color,
     coverUrl: row.cover_url,
     adaptations: adaptationsByBook.get(row.id) ?? [],
