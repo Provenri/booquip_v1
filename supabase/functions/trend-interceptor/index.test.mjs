@@ -105,6 +105,18 @@ test('standalone ideas are allowed, and the exact 200-character limit is enforce
   assert.equal(errors.mock.callCount(), 1);
 });
 
+test('one descriptive short take is passed to the model with instructions to use it rather than require multiple books', async (t) => {
+  const calls = setup(t, { content: () => JSON.stringify({ idea: 'Can focused attention improve progress?' }) });
+  const response = await handler(ideaRequest({ bookIds: ['a'] }));
+  assert.equal(response.status, 200);
+  const body = JSON.parse(calls.find((call) => call.url.hostname === 'api.openai.com').init.body);
+  assert.deepEqual(JSON.parse(body.messages[1].content).ideas, [{
+    bookId: 'a', title: 'Book A', author: 'Author A', shortTake: BOOKS[0].note,
+  }]);
+  assert.match(body.messages[0].content, /One book is sufficient/);
+  assert.match(body.messages[0].content, /Return an error only if none of the selected short takes contains a usable topic or idea/);
+});
+
 test('idea requests reject absent, empty, duplicate, or stale books and unrelated inputs', async (t) => {
   const calls = setup(t, { eligible: ['a'] });
   for (const overrides of [
@@ -130,12 +142,16 @@ test('malformed, empty, extra-field, and unfinished idea responses fail explicit
   assert.equal(errors.mock.callCount(), 6);
 });
 
-test('insufficient book summaries show an actionable error rather than an invented seed', async (t) => {
+test('insufficient summaries return a clear error for one or multiple selected books', async (t) => {
   const error = 'These books need more descriptive summaries before an idea can be suggested.';
-  setup(t, { content: () => JSON.stringify({ error }) });
-  const response = await handler(ideaRequest());
-  assert.equal(response.status, 422);
-  assert.deepEqual(await response.json(), { error });
+  const calls = setup(t, { content: () => JSON.stringify({ error }) });
+  for (const bookIds of [['a'], ['a', 'b']]) {
+    const response = await handler(ideaRequest({ bookIds }));
+    assert.equal(response.status, 422);
+    assert.deepEqual(await response.json(), { error });
+    const aiCall = calls.filter((call) => call.url.hostname === 'api.openai.com').at(-1);
+    assert.deepEqual(JSON.parse(JSON.parse(aiCall.init.body).messages[1].content).ideas.map((book) => book.bookId), bookIds);
+  }
 });
 
 test('truncated idea output is never accepted', async (t) => {

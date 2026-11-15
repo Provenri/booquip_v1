@@ -159,23 +159,22 @@ export default function QuipWorkspace({
   const shelfBusy = isSaving || refreshing;
   const canGenerateIdea = activeBookIds.length > 0 && aiConsent && !inputsLocked && !shelfBusy;
   const canGenerate = canGenerateIdea && Boolean(topicText.trim());
-  const generateDisabledReason = shelfBusy
+  const ideaDisabledReason = shelfBusy
     ? 'Waiting for your shelf to finish syncing.'
     : isGeneratingIdea
       ? 'Wait for your idea to finish generating.'
       : isExtracting
-      ? 'Wait for the screenshot text to finish reading.'
-      : isPickingScreenshot || pendingScreenshot !== null
-        ? 'Finish reviewing your screenshot before generating.'
-      : activeBookIds.length === 0
-        ? sourceBooks.length === 0
-          ? 'Turn Quip on for at least one book in Finished.'
-          : 'Select at least one source book to generate a Quip.'
-        : !aiConsent
-          ? 'Check the AI processing consent box below to enable generation.'
-        : !topicText.trim()
-          ? 'Add a Quip seed to enable generation.'
-          : null;
+        ? 'Wait for the screenshot text to finish reading.'
+        : isPickingScreenshot || pendingScreenshot !== null
+          ? 'Finish reviewing your screenshot before generating.'
+          : activeBookIds.length === 0
+            ? sourceBooks.length === 0
+              ? 'Turn Quip on for at least one book in Finished.'
+              : 'Select at least one source book.'
+            : !aiConsent
+              ? 'Check the AI processing consent box to enable generation.'
+              : null;
+  const generateDisabledReason = ideaDisabledReason ?? (!topicText.trim() ? 'Add a Quip seed to enable generation.' : null);
 
   const resetDraft = () => {
     setReply('');
@@ -284,7 +283,14 @@ export default function QuipWorkspace({
       setTopicText(idea);
       resetDraft();
     } catch (error) {
-      if (mounted.current) setErrorMessage(error instanceof Error ? error.message : 'Could not suggest a Quip idea.');
+      if (mounted.current) {
+        const message = error instanceof Error ? error.message : 'Could not suggest a Quip idea.';
+        setErrorMessage(message === 'These books need more descriptive summaries before an idea can be suggested.'
+          ? activeBookIds.length === 1
+            ? 'The AI could not find enough detail in the selected book’s summary. Try another Quip-enabled book, tap Idea to retry, or write your own seed.'
+            : 'The AI could not find enough detail in the selected books’ summaries. Try other Quip-enabled books, tap Idea to retry, or write your own seed.'
+          : message);
+      }
     } finally {
       generationController.current = null;
       if (mounted.current) setIsGeneratingIdea(false);
@@ -401,23 +407,7 @@ export default function QuipWorkspace({
           {topicSource === 'write' || topicSource === 'idea' ? (
             <>
             {topicSource === 'idea' ? (
-              <>
-                <Text style={styles.privacyHint}>Find a seed from your selected Quip-enabled books: a meaningful connection between books, or one strong standalone idea. Up to {QUIP_IDEA_LIMIT} characters; edit it below.</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: !canGenerateIdea, busy: isGeneratingIdea }}
-                  aria-busy={isGeneratingIdea || shelfBusy}
-                  disabled={!canGenerateIdea}
-                  onPress={() => void generateIdea()}
-                  style={[styles.selectAllButton, !canGenerateIdea && styles.disabled]}
-                >
-                  <View style={styles.inlineAction}>
-                    {isGeneratingIdea || shelfBusy ? <ActivityIndicator size="small" color={colors.brandDeep} /> : <Sparkles size={16} color={colors.brandDeep} />}
-                    <Text style={styles.selectAllText}>{isGeneratingIdea ? 'Finding an idea…' : shelfBusy ? 'Waiting…' : 'Generate Idea'}</Text>
-                  </View>
-                </Pressable>
-                {!canGenerateIdea && !isGeneratingIdea ? <Text style={styles.generateHint}>{generateDisabledReason}</Text> : null}
-              </>
+              <Text style={styles.privacyHint}>Find a seed from your selected Quip-enabled books: a meaningful connection or one standalone idea. Up to {QUIP_IDEA_LIMIT} characters. Tap Idea again to retry or find another.</Text>
             ) : null}
             <TextInput
               accessibilityLabel="Quip seed"
@@ -501,6 +491,34 @@ export default function QuipWorkspace({
             <Text style={styles.characterCount}>{topicText.length} / {TOPIC_LIMIT}</Text>
           ) : null}
 
+          <View style={styles.consentRow}>
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: aiConsent, disabled: inputsLocked }}
+              aria-checked={aiConsent}
+              disabled={inputsLocked}
+              onPress={() => setAiConsent((accepted) => !accepted)}
+              style={styles.consentCheckbox}
+            >
+              <View style={[styles.replyCheckbox, aiConsent && styles.replyCheckboxSelected]}>
+                {aiConsent ? <Check color={colors.white} size={14} /> : null}
+              </View>
+              <Text style={styles.consentLabel}>I agree to send Quip inputs to OpenAI.</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: isPrivacyExpanded }} aria-expanded={isPrivacyExpanded} onPress={() => setIsPrivacyExpanded((expanded) => !expanded)} style={styles.disclosureButton}>
+              <Text style={styles.selectAllText}>{isPrivacyExpanded ? 'Read less' : 'Read more…'}</Text>
+            </Pressable>
+          </View>
+          {isPrivacyExpanded ? (
+            <Text style={styles.privacyNotice}>
+              AI processing: Generating a Quip sends your seed, selected book details, and any selected trend context to OpenAI via Supabase. Finding an idea sends only selected book details, not your existing seed. The AI uses available metadata and short summaries, not the full books, and can make mistakes. Book choices may reveal personal interests. Remove names, contact details, and private or sensitive information you do not want to share. Nothing is automatically anonymized. Screenshots require a separate image review and explicit Send to OpenAI confirmation. This consent does not change provider retention settings.
+            </Text>
+          ) : null}
+          {topicSource === 'idea' && !canGenerateIdea && !isGeneratingIdea && ideaDisabledReason ? (
+            <Text accessibilityLiveRegion="polite" style={styles.generateHint}>{ideaDisabledReason}</Text>
+          ) : null}
+          {topicSource === 'idea' && errorMessage ? <Text accessibilityRole="alert" style={styles.error}>{errorMessage}</Text> : null}
+
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ expanded: isReplySourcesExpanded }}
@@ -577,31 +595,7 @@ export default function QuipWorkspace({
             </View>
           </View>
 
-          {errorMessage ? <Text accessibilityRole="alert" style={styles.error}>{errorMessage}</Text> : null}
-
-          <View style={styles.consentRow}>
-            <Pressable
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: aiConsent, disabled: inputsLocked }}
-              aria-checked={aiConsent}
-              disabled={inputsLocked}
-              onPress={() => setAiConsent((accepted) => !accepted)}
-              style={styles.consentCheckbox}
-            >
-              <View style={[styles.replyCheckbox, aiConsent && styles.replyCheckboxSelected]}>
-                {aiConsent ? <Check color={colors.white} size={14} /> : null}
-              </View>
-              <Text style={styles.consentLabel}>I agree to send Quip inputs to OpenAI.</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityState={{ expanded: isPrivacyExpanded }} aria-expanded={isPrivacyExpanded} onPress={() => setIsPrivacyExpanded((expanded) => !expanded)} style={styles.disclosureButton}>
-              <Text style={styles.selectAllText}>{isPrivacyExpanded ? 'Read less' : 'Read more…'}</Text>
-            </Pressable>
-          </View>
-          {isPrivacyExpanded ? (
-            <Text style={styles.privacyNotice}>
-              AI processing: Generating a Quip sends your seed, selected book details, and any selected trend context to OpenAI via Supabase. Finding an idea sends only selected book details, not your existing seed. The AI uses available metadata and short summaries, not the full books, and can make mistakes. Book choices may reveal personal interests. Remove names, contact details, and private or sensitive information you do not want to share. Nothing is automatically anonymized. Screenshots require a separate image review and explicit Send to OpenAI confirmation. This consent does not change provider retention settings.
-            </Text>
-          ) : null}
+          {topicSource !== 'idea' && errorMessage ? <Text accessibilityRole="alert" style={styles.error}>{errorMessage}</Text> : null}
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ disabled: !canGenerate, busy: isGenerating || shelfBusy || isGeneratingIdea || isExtracting }}
@@ -736,7 +730,6 @@ const styles = StyleSheet.create({
   consentCheckbox: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexShrink: 1, minHeight: 44 },
   consentLabel: { color: colors.body, fontSize: type.caption, flexShrink: 1 },
   disclosureButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.xs },
-  inlineAction: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   preferenceSection: { marginTop: spacing.sm },
   preferenceLabel: { color: colors.secondary, fontSize: type.caption, fontWeight: '700', letterSpacing: 0.5, marginBottom: spacing.xs },
   preferenceOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
