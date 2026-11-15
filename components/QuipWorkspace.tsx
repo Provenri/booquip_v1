@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { ArrowRight, Camera, Check, ChevronDown, ChevronUp, Copy, MessageCircle, PenLine, Sparkles, TrendingUp } from 'lucide-react-native';
-import { ActivityIndicator, Platform, Pressable as NativePressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable as NativePressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import Pressable from '@/components/MotionPressable';
 import BookListCard from '@/components/BookListCard';
 import TrendPickerSheet from '@/components/TrendPickerSheet';
@@ -13,7 +14,7 @@ import type { QuipGenerationOptions } from '@/lib/trendInterceptor';
 import type { QuipTrendTopic } from '@/lib/quipTrends';
 import { quipInputsMatch, reconcileQuipSelection, type QuipDraftInputs } from '@/lib/quipSelection';
 import {
-  QUIP_IDEA_LIMIT, QUIP_RELEVANCE_LABELS, QUIP_STANCES, QUIP_STYLES,
+  QUIP_CONCISE_LIMIT, QUIP_IDEA_LIMIT, QUIP_RELEVANCE_LABELS, QUIP_STANCES, QUIP_STYLES,
   type QuipBookRelevance, type QuipRelevanceLevel, type QuipResult, type QuipStance, type QuipStyle,
 } from '@/supabase/functions/_shared/quip';
 import { colors, pageLayout, radii, spacing, type } from '@/constants/theme';
@@ -42,6 +43,7 @@ const SCREENSHOT_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const MAX_SCREENSHOT_BASE64_LENGTH = 5_600_000;
 const TOPIC_LIMIT = 2000;
 const REPLY_LIMIT = 600;
+const NO_BOOKS: Book[] = [];
 
 const QuipBookOption = memo(function QuipBookOption({
   book, checked, onToggle, relevance, disabled,
@@ -50,6 +52,7 @@ const QuipBookOption = memo(function QuipBookOption({
     <NativePressable
       accessibilityRole="checkbox"
       accessibilityState={{ checked, disabled }}
+      aria-checked={checked}
       accessibilityLabel={`Include ${book.title} in this quip${checked && relevance ? `, ${QUIP_RELEVANCE_LABELS[relevance]}` : ''}`}
       disabled={disabled}
       onPress={() => onToggle(book.id)}
@@ -89,6 +92,7 @@ export default function QuipWorkspace({
   const [hasExtractedText, setHasExtractedText] = useState(false);
   const [replyBookIds, setReplyBookIds] = useState<string[]>(sourceBooks.map((book) => book.id));
   const [isReplySourcesExpanded, setIsReplySourcesExpanded] = useState(false);
+  const [isPreferencesExpanded, setIsPreferencesExpanded] = useState(false);
   const [reply, setReply] = useState('');
   const [stance, setStance] = useState<QuipStance>('neutral');
   const [quipStyle, setQuipStyle] = useState<QuipStyle>('natural');
@@ -103,7 +107,7 @@ export default function QuipWorkspace({
   const [isCopied, setIsCopied] = useState(false);
   const [isReplyExpanded, setIsReplyExpanded] = useState(false);
   const [replyRevision, setReplyRevision] = useState(0);
-  const quipScrollRef = useRef<ScrollView>(null);
+  const quipScrollRef = useRef<FlashListRef<Book>>(null);
   const quipViewportRef = useRef<View>(null);
   const replyCardRef = useRef<View>(null);
   const quipScrollOffset = useRef(0);
@@ -129,6 +133,7 @@ export default function QuipWorkspace({
   const latestInputs = useRef(currentInputs);
   latestInputs.current = currentInputs;
   const draftIsCurrent = quipInputsMatch(generatedInputs, currentInputs);
+  const replyLimit = generatedInputs?.style === 'concise' ? QUIP_CONCISE_LIMIT : REPLY_LIMIT;
   const toggleSourceBook = useCallback((bookId: string) => {
     setReplyBookIds((ids) => ids.includes(bookId) ? ids.filter((id) => id !== bookId) : [...ids, bookId]);
     setBookRelevance((entries) => entries.filter((entry) => entry.bookId !== bookId));
@@ -157,6 +162,12 @@ export default function QuipWorkspace({
   const allReplyBooksSelected = sourceBooks.length > 0 && activeBookIds.length === sourceBooks.length;
   const inputsLocked = isGenerating || isGeneratingIdea || isExtracting || isPickingScreenshot || pendingScreenshot !== null;
   const shelfBusy = isSaving || refreshing;
+  const generationBusy = isGenerating || isGeneratingIdea || isExtracting || isPickingScreenshot || shelfBusy;
+  const generationLabel = isGenerating ? 'Generating…'
+    : isGeneratingIdea ? 'Finding idea…'
+      : isExtracting ? 'Reading screenshot…'
+        : isPickingScreenshot ? 'Choosing screenshot…'
+          : shelfBusy ? 'Syncing shelf…' : 'Generate Quip';
   const canGenerateIdea = activeBookIds.length > 0 && aiConsent && !inputsLocked && !shelfBusy;
   const canGenerate = canGenerateIdea && Boolean(topicText.trim());
   const ideaDisabledReason = shelfBusy
@@ -335,8 +346,8 @@ export default function QuipWorkspace({
         quipViewportRef.current?.measureInWindow((_viewportX, viewportY) => {
           if (!shouldScrollToReply.current) return;
           shouldScrollToReply.current = false;
-          quipScrollRef.current?.scrollTo({
-            y: Math.max(0, quipScrollOffset.current + y - viewportY - 12),
+          quipScrollRef.current?.scrollToOffset({
+            offset: Math.max(0, quipScrollOffset.current + y - viewportY - 12),
             animated: true,
           });
         });
@@ -356,56 +367,54 @@ export default function QuipWorkspace({
     }
   };
 
-  return (
+  const renderSourceBook = useCallback(({ item }: ListRenderItemInfo<Book>) => (
+    <QuipBookOption
+      book={item}
+      checked={selectedBookIds.has(item.id)}
+      onToggle={toggleSourceBook}
+      relevance={relevanceById.get(item.id)}
+      disabled={inputsLocked}
+    />
+  ), [selectedBookIds, toggleSourceBook, relevanceById, inputsLocked]);
+
+  const listHeader = (
     <>
-      <View ref={quipViewportRef} style={styles.scrollViewport}>
-        <ScrollView
-          ref={quipScrollRef}
-          style={styles.scroll}
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          onScroll={(event) => { quipScrollOffset.current = event.nativeEvent.contentOffset.y; }}
-          scrollEventThrottle={16}
-          showsVerticalScrollIndicator={false}
-          alwaysBounceVertical
-          refreshControl={<RefreshControl refreshing={refreshing} enabled={!inputsLocked} onRefresh={inputsLocked ? undefined : onRefresh} tintColor={colors.brand} colors={[colors.brand]} />}
-        >
-        <View style={styles.hero}>
-          <Text style={styles.eyebrow}>QUIP</Text>
-          <Text style={styles.title}>Shape a thought</Text>
-          <Text style={styles.description}>Draft book-informed quips from your Read shelf.</Text>
+      <View style={styles.hero}>
+        <Text style={styles.eyebrow}>QUIP</Text>
+        <Text style={styles.title}>Shape a thought</Text>
+        <Text style={styles.description}>Draft book-informed quips from your Read shelf.</Text>
+      </View>
+      {refreshError ? <Text accessibilityRole="alert" style={styles.error}>{refreshError}</Text> : null}
+
+      <View style={styles.seedSection}>
+        <View style={styles.seedHeading}>
+          <View style={styles.seedDot} />
+          <Text style={styles.seedTitle}>QUIP SEED</Text>
         </View>
-        {refreshError ? <Text accessibilityRole="alert" style={styles.error}>{refreshError}</Text> : null}
 
-        <View style={styles.seedCard}>
-          <View style={styles.seedHeading}>
-            <View style={styles.seedDot} />
-            <Text style={styles.seedTitle}>QUIP SEED</Text>
-          </View>
+        <View accessibilityRole="tablist" onLayout={(event) => setWideSourceTabs(event.nativeEvent.layout.width >= 500)} style={styles.topicTabs}>
+          {TOPIC_SOURCES.map(({ id, label, icon: Icon }) => (
+            <Pressable
+              key={id}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: topicSource === id, disabled: inputsLocked, busy: id === 'idea' && isGeneratingIdea }}
+              aria-selected={topicSource === id}
+              aria-busy={id === 'idea' && isGeneratingIdea}
+              disabled={inputsLocked}
+              onPress={() => {
+                switchTopicSource(id);
+                if (id === 'idea') void generateIdea();
+              }}
+              style={[styles.topicTab, wideSourceTabs && styles.topicTabWide, topicSource === id && styles.topicTabSelected, inputsLocked && styles.disabled]}
+            >
+              {id === 'idea' && isGeneratingIdea ? <ActivityIndicator size="small" color={colors.brandDeep} /> : <Icon color={topicSource === id ? colors.brandDeep : colors.secondary} size={15} />}
+              <Text style={[styles.topicTabText, topicSource === id && styles.topicTabTextSelected]}>{id === 'idea' && isGeneratingIdea ? 'Finding…' : label}</Text>
+            </Pressable>
+          ))}
+        </View>
 
-          <View accessibilityRole="tablist" onLayout={(event) => setWideSourceTabs(event.nativeEvent.layout.width >= 500)} style={styles.topicTabs}>
-            {TOPIC_SOURCES.map(({ id, label, icon: Icon }) => (
-              <Pressable
-                key={id}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: topicSource === id, disabled: inputsLocked, busy: id === 'idea' && isGeneratingIdea }}
-                aria-selected={topicSource === id}
-                aria-busy={id === 'idea' && isGeneratingIdea}
-                disabled={inputsLocked}
-                onPress={() => {
-                  switchTopicSource(id);
-                  if (id === 'idea') void generateIdea();
-                }}
-                style={[styles.topicTab, wideSourceTabs && styles.topicTabWide, topicSource === id && styles.topicTabSelected, inputsLocked && styles.disabled]}
-              >
-                {id === 'idea' && isGeneratingIdea ? <ActivityIndicator size="small" color={colors.brandDeep} /> : <Icon color={topicSource === id ? colors.brandDeep : colors.secondary} size={15} />}
-                <Text style={[styles.topicTabText, topicSource === id && styles.topicTabTextSelected]}>{id === 'idea' && isGeneratingIdea ? 'Finding…' : label}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          {topicSource === 'write' || topicSource === 'idea' ? (
-            <>
+        {topicSource === 'write' || topicSource === 'idea' ? (
+          <>
             {topicSource === 'idea' ? (
               <Text style={styles.privacyHint}>Find a seed from your selected Quip-enabled books: a meaningful connection or one standalone idea. Up to {QUIP_IDEA_LIMIT} characters. Tap Idea again to retry or find another.</Text>
             ) : null}
@@ -422,142 +431,153 @@ export default function QuipWorkspace({
               textAlignVertical="top"
               value={topicText}
             />
-            </>
-          ) : topicSource === 'screenshot' ? (
-            <>
-              <Pressable
-                accessibilityRole="button"
-                disabled={inputsLocked}
-                onPress={() => void pickScreenshot(false)}
-                style={({ pressed }) => [styles.seedSourceCard, isExtracting && styles.disabled, pressed && styles.pressed]}
-              >
-                {isExtracting ? <ActivityIndicator color={colors.brand} /> : <Camera color={colors.brand} size={20} />}
-                <View style={styles.seedSourceCopy}>
-                  <Text style={styles.seedSourceTitle}>{isExtracting ? 'Reading screenshot…' : isPickingScreenshot ? 'Choosing screenshot…' : hasExtractedText ? 'Replace screenshot' : 'Choose a screenshot'}</Text>
-                  <Text style={styles.seedSourceHint}>PNG, JPEG, or WebP up to 4 MB</Text>
-                </View>
-                <ArrowRight color={colors.brandDeep} size={17} />
-              </Pressable>
-              <Text style={styles.privacyHint}>Review the image locally before choosing whether to send it to OpenAI for text extraction.</Text>
-              {Platform.OS !== 'web' ? (
-                <Pressable accessibilityRole="button" disabled={inputsLocked} onPress={() => void pickScreenshot(true)} style={styles.selectAllButton}>
-                  <Text style={styles.selectAllText}>Choose &amp; crop</Text>
-                </Pressable>
-              ) : null}
-              {hasExtractedText ? (
-                <TextInput
-                  accessibilityLabel="Review extracted screenshot text"
-                  editable={!inputsLocked}
-                  autoCorrect
-                  maxLength={TOPIC_LIMIT}
-                  multiline
-                  onChangeText={updateTopicText}
-                  style={[styles.seedInput, styles.extractedInput]}
-                  textAlignVertical="top"
-                  value={topicText}
-                />
-              ) : null}
-            </>
-          ) : selectedTrendTopic ? (
-            <View style={styles.selectedTrend}>
-              <View style={styles.selectedTrendCopy}>
-                <View style={styles.selectedTrendMeta}>
-                  <Text style={styles.selectedTrendTitle}>{selectedTrendTopic.topic}</Text>
-                  <Text style={styles.selectedTrendCountry}>{selectedTrendTopic.countryCode}</Text>
-                </View>
-                {selectedTrendTopic.summary ? <Text style={styles.selectedTrendSummary}>{selectedTrendTopic.summary}</Text> : null}
-              </View>
-              <Pressable accessibilityRole="button" disabled={inputsLocked} onPress={() => setIsTrendPickerVisible(true)} style={styles.changeTrend}>
-                <Text style={styles.changeTrendLabel}>CHANGE</Text>
-              </Pressable>
-            </View>
-          ) : (
+          </>
+        ) : topicSource === 'screenshot' ? (
+          <>
             <Pressable
               accessibilityRole="button"
+              accessibilityState={{ disabled: inputsLocked, busy: isPickingScreenshot || isExtracting }}
+              aria-busy={isPickingScreenshot || isExtracting}
               disabled={inputsLocked}
-              onPress={() => setIsTrendPickerVisible(true)}
-              style={({ pressed }) => [styles.seedSourceCard, pressed && styles.pressed]}
+              onPress={() => void pickScreenshot(false)}
+              style={({ pressed }) => [styles.seedSourceCard, inputsLocked && styles.disabled, pressed && styles.pressed]}
             >
-              <View style={styles.seedSourceIcon}><TrendingUp color={colors.brand} size={20} /></View>
+              {isPickingScreenshot || isExtracting ? <ActivityIndicator color={colors.brand} /> : <Camera color={colors.brand} size={20} />}
               <View style={styles.seedSourceCopy}>
-                <Text style={styles.seedSourceTitle}>Select from Google Trends</Text>
-                <Text numberOfLines={1} style={styles.seedSourceHint}>Browse current topics and related headlines</Text>
+                <Text style={styles.seedSourceTitle}>{isExtracting ? 'Reading screenshot…' : isPickingScreenshot ? 'Choosing screenshot…' : hasExtractedText ? 'Replace screenshot' : 'Choose a screenshot'}</Text>
+                <Text style={styles.seedSourceHint}>PNG, JPEG, or WebP up to 4 MB</Text>
               </View>
               <ArrowRight color={colors.brandDeep} size={17} />
             </Pressable>
-          )}
-
-          {topicSource !== 'trend' || !selectedTrendTopic ? (
-            <Text style={styles.characterCount}>{topicText.length} / {TOPIC_LIMIT}</Text>
-          ) : null}
-
-          <View style={styles.consentRow}>
-            <Pressable
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: aiConsent, disabled: inputsLocked }}
-              aria-checked={aiConsent}
-              disabled={inputsLocked}
-              onPress={() => setAiConsent((accepted) => !accepted)}
-              style={styles.consentCheckbox}
-            >
-              <View style={[styles.replyCheckbox, aiConsent && styles.replyCheckboxSelected]}>
-                {aiConsent ? <Check color={colors.white} size={14} /> : null}
+            <Text style={styles.privacyHint}>Review the image locally before choosing whether to send it to OpenAI for text extraction.</Text>
+            {Platform.OS !== 'web' ? (
+              <Pressable accessibilityRole="button" disabled={inputsLocked} onPress={() => void pickScreenshot(true)} style={styles.selectAllButton}>
+                <Text style={styles.selectAllText}>Choose &amp; crop</Text>
+              </Pressable>
+            ) : null}
+            {hasExtractedText ? (
+              <TextInput
+                accessibilityLabel="Review extracted screenshot text"
+                editable={!inputsLocked}
+                autoCorrect
+                maxLength={TOPIC_LIMIT}
+                multiline
+                onChangeText={updateTopicText}
+                style={[styles.seedInput, styles.extractedInput]}
+                textAlignVertical="top"
+                value={topicText}
+              />
+            ) : null}
+          </>
+        ) : selectedTrendTopic ? (
+          <View style={styles.selectedTrend}>
+            <View style={styles.selectedTrendCopy}>
+              <View style={styles.selectedTrendMeta}>
+                <Text style={styles.selectedTrendTitle}>{selectedTrendTopic.topic}</Text>
+                <Text style={styles.selectedTrendCountry}>{selectedTrendTopic.countryCode}</Text>
               </View>
-              <Text style={styles.consentLabel}>I agree to send Quip inputs to OpenAI.</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityState={{ expanded: isPrivacyExpanded }} aria-expanded={isPrivacyExpanded} onPress={() => setIsPrivacyExpanded((expanded) => !expanded)} style={styles.disclosureButton}>
-              <Text style={styles.selectAllText}>{isPrivacyExpanded ? 'Read less' : 'Read more…'}</Text>
+              {selectedTrendTopic.summary ? <Text style={styles.selectedTrendSummary}>{selectedTrendTopic.summary}</Text> : null}
+            </View>
+            <Pressable accessibilityRole="button" disabled={inputsLocked} onPress={() => setIsTrendPickerVisible(true)} style={styles.changeTrend}>
+              <Text style={styles.changeTrendLabel}>CHANGE</Text>
             </Pressable>
           </View>
-          {isPrivacyExpanded ? (
-            <Text style={styles.privacyNotice}>
-              AI processing: Generating a Quip sends your seed, selected book details, and any selected trend context to OpenAI via Supabase. Finding an idea sends only selected book details, not your existing seed. The AI uses available metadata and short summaries, not the full books, and can make mistakes. Book choices may reveal personal interests. Remove names, contact details, and private or sensitive information you do not want to share. Nothing is automatically anonymized. Screenshots require a separate image review and explicit Send to OpenAI confirmation. This consent does not change provider retention settings.
-            </Text>
-          ) : null}
-          {topicSource === 'idea' && !canGenerateIdea && !isGeneratingIdea && ideaDisabledReason ? (
-            <Text accessibilityLiveRegion="polite" style={styles.generateHint}>{ideaDisabledReason}</Text>
-          ) : null}
-          {topicSource === 'idea' && errorMessage ? <Text accessibilityRole="alert" style={styles.error}>{errorMessage}</Text> : null}
-
+        ) : (
           <Pressable
             accessibilityRole="button"
-            accessibilityState={{ expanded: isReplySourcesExpanded }}
-            onPress={() => setIsReplySourcesExpanded((expanded) => !expanded)}
-            style={styles.replySourcesToggle}
+            disabled={inputsLocked}
+            onPress={() => setIsTrendPickerVisible(true)}
+            style={({ pressed }) => [styles.seedSourceCard, pressed && styles.pressed]}
           >
-            <Text style={styles.replySourcesLabel}>BOOKS IN THIS QUIP · {activeBookIds.length} OF {sourceBooks.length}</Text>
-            {isReplySourcesExpanded ? <ChevronUp color={colors.brandDeep} size={17} /> : <ChevronDown color={colors.brandDeep} size={17} />}
-          </Pressable>
-          {isReplySourcesExpanded ? (
-            <View style={styles.replyBookList}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: allReplyBooksSelected, disabled: inputsLocked }}
-                disabled={inputsLocked}
-                onPress={() => {
-                  setReplyBookIds(allReplyBooksSelected ? [] : sourceBooks.map((book) => book.id));
-                  if (allReplyBooksSelected) setBookRelevance([]);
-                }}
-                style={styles.selectAllButton}
-              >
-                <Text style={styles.selectAllText}>{allReplyBooksSelected ? 'Deselect all' : 'Use all selected sources'}</Text>
-              </Pressable>
-              {sourceBooks.map((book) => (
-                <QuipBookOption
-                  key={book.id}
-                  book={book}
-                  checked={selectedBookIds.has(book.id)}
-                  onToggle={toggleSourceBook}
-                  relevance={relevanceById.get(book.id)}
-                  disabled={inputsLocked}
-                />
-              ))}
-              {bookRelevance.length > 0 ? (
-                <Text style={styles.relevanceHint}>AI-estimated relevance to your seed, based on available book summaries—not proof a book was used in the wording.</Text>
-              ) : null}
+            <View style={styles.seedSourceIcon}><TrendingUp color={colors.brand} size={20} /></View>
+            <View style={styles.seedSourceCopy}>
+              <Text style={styles.seedSourceTitle}>Select from Google Trends</Text>
+              <Text numberOfLines={1} style={styles.seedSourceHint}>Browse current topics and related headlines</Text>
             </View>
-          ) : null}
+            <ArrowRight color={colors.brandDeep} size={17} />
+          </Pressable>
+        )}
 
+        {topicSource !== 'trend' || !selectedTrendTopic ? (
+          <Text style={styles.characterCount}>{topicText.length} / {TOPIC_LIMIT}</Text>
+        ) : null}
+
+        <View style={styles.consentRow}>
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: aiConsent, disabled: inputsLocked }}
+            aria-checked={aiConsent}
+            disabled={inputsLocked}
+            onPress={() => setAiConsent((accepted) => !accepted)}
+            style={styles.consentCheckbox}
+          >
+            <View style={[styles.replyCheckbox, aiConsent && styles.replyCheckboxSelected]}>
+              {aiConsent ? <Check color={colors.white} size={14} /> : null}
+            </View>
+            <Text style={styles.consentLabel}>I agree to send Quip inputs to OpenAI.</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: isPrivacyExpanded }} aria-expanded={isPrivacyExpanded} onPress={() => setIsPrivacyExpanded((expanded) => !expanded)} style={styles.disclosureButton}>
+            <Text style={styles.selectAllText}>{isPrivacyExpanded ? 'Read less' : 'Read more…'}</Text>
+          </Pressable>
+        </View>
+        {isPrivacyExpanded ? (
+          <Text style={styles.privacyNotice}>
+            AI processing: Generating a Quip sends your seed, selected book details, and any selected trend context to OpenAI via Supabase. Finding an idea sends only selected book details, not your existing seed. The AI uses available metadata and short summaries, not the full books, and can make mistakes. Book choices may reveal personal interests. Remove names, contact details, and private or sensitive information you do not want to share. Nothing is automatically anonymized. Screenshots require a separate image review and explicit Send to OpenAI confirmation. This consent does not change provider retention settings.
+          </Text>
+        ) : null}
+        {topicSource === 'idea' && !canGenerateIdea && !isGeneratingIdea && ideaDisabledReason ? (
+          <Text accessibilityLiveRegion="polite" style={styles.generateHint}>{ideaDisabledReason}</Text>
+        ) : null}
+        {topicSource === 'idea' && errorMessage ? <Text accessibilityRole="alert" style={styles.error}>{errorMessage}</Text> : null}
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: isReplySourcesExpanded }}
+          aria-expanded={isReplySourcesExpanded}
+          onPress={() => setIsReplySourcesExpanded((expanded) => !expanded)}
+          style={styles.replySourcesToggle}
+        >
+          <Text style={styles.replySourcesLabel}>BOOKS IN THIS QUIP · {activeBookIds.length} OF {sourceBooks.length}</Text>
+          {isReplySourcesExpanded ? <ChevronUp color={colors.brandDeep} size={17} /> : <ChevronDown color={colors.brandDeep} size={17} />}
+        </Pressable>
+        {isReplySourcesExpanded ? (
+          <View style={styles.sourceActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: allReplyBooksSelected, disabled: inputsLocked }}
+              disabled={inputsLocked}
+              onPress={() => {
+                setReplyBookIds(allReplyBooksSelected ? [] : sourceBooks.map((book) => book.id));
+                if (allReplyBooksSelected) setBookRelevance([]);
+              }}
+              style={styles.selectAllButton}
+            >
+              <Text style={styles.selectAllText}>{allReplyBooksSelected ? 'Deselect all' : 'Use all selected sources'}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+    </>
+  );
+
+  const listFooter = (
+    <View>
+      {isReplySourcesExpanded && bookRelevance.length > 0 ? (
+        <Text style={styles.relevanceHint}>AI-estimated relevance to your seed, based on available book summaries—not proof a book was used in the wording.</Text>
+      ) : null}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Stance and Style"
+        accessibilityState={{ expanded: isPreferencesExpanded }}
+        aria-expanded={isPreferencesExpanded}
+        onPress={() => setIsPreferencesExpanded((expanded) => !expanded)}
+        style={styles.replySourcesToggle}
+      >
+        <Text style={styles.replySourcesLabel}>STANCE AND STYLE</Text>
+        {isPreferencesExpanded ? <ChevronUp color={colors.brandDeep} size={17} /> : <ChevronDown color={colors.brandDeep} size={17} />}
+      </Pressable>
+      {isPreferencesExpanded ? (
+        <>
           <View style={styles.preferenceSection}>
             <Text style={styles.preferenceLabel}>STANCE</Text>
             <View accessibilityRole="radiogroup" accessibilityLabel="Stance" style={styles.preferenceOptions}>
@@ -567,6 +587,7 @@ export default function QuipWorkspace({
                   accessibilityRole="radio"
                   accessibilityLabel={`${option.label} stance`}
                   accessibilityState={{ checked: stance === option.id, disabled: inputsLocked }}
+                  aria-checked={stance === option.id}
                   disabled={inputsLocked}
                   onPress={() => setStance(option.id)}
                   style={[styles.preferenceButton, stance === option.id && styles.preferenceSelected]}
@@ -585,6 +606,7 @@ export default function QuipWorkspace({
                   accessibilityRole="radio"
                   accessibilityLabel={`${option.label} style`}
                   accessibilityState={{ checked: quipStyle === option.id, disabled: inputsLocked }}
+                  aria-checked={quipStyle === option.id}
                   disabled={inputsLocked}
                   onPress={() => setQuipStyle(option.id)}
                   style={[styles.preferenceButton, quipStyle === option.id && styles.preferenceSelected]}
@@ -594,74 +616,99 @@ export default function QuipWorkspace({
               ))}
             </View>
           </View>
+        </>
+      ) : null}
 
-          {topicSource !== 'idea' && errorMessage ? <Text accessibilityRole="alert" style={styles.error}>{errorMessage}</Text> : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !canGenerate, busy: isGenerating || shelfBusy || isGeneratingIdea || isExtracting }}
-            aria-busy={isGenerating || shelfBusy || isGeneratingIdea || isExtracting}
-            accessibilityHint={canGenerate ? 'Sends your seed, selected book details, and any selected trend context to OpenAI to draft a Quip.' : generateDisabledReason ?? 'Quip generation is in progress.'}
-            disabled={!canGenerate}
-            onPress={() => void generate()}
-            style={({ pressed }) => [styles.generateButton, !canGenerate && styles.disabled, pressed && styles.pressed]}
-          >
-            {isGenerating || shelfBusy || isGeneratingIdea || isExtracting ? <ActivityIndicator color={colors.brandContrast} /> : <Sparkles color={colors.brandContrast} size={20} />}
-            <Text style={styles.generateLabel}>{isGenerating ? 'Generating…' : shelfBusy || isGeneratingIdea || isExtracting ? 'Waiting…' : 'Generate Quip'}</Text>
+      {topicSource !== 'idea' && errorMessage ? <Text accessibilityRole="alert" style={styles.error}>{errorMessage}</Text> : null}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !canGenerate, busy: generationBusy }}
+        aria-busy={generationBusy}
+        accessibilityHint={canGenerate ? 'Sends your seed, selected book details, and any selected trend context to OpenAI to draft a Quip.' : generateDisabledReason ?? 'Quip generation is in progress.'}
+        disabled={!canGenerate}
+        onPress={() => void generate()}
+        style={({ pressed }) => [styles.generateButton, !canGenerate && styles.disabled, pressed && styles.pressed]}
+      >
+        {generationBusy ? <ActivityIndicator color={colors.brandContrast} /> : <Sparkles color={colors.brandContrast} size={20} />}
+        <Text style={styles.generateLabel}>{generationLabel}</Text>
+      </Pressable>
+      {!canGenerate && !isGenerating && generateDisabledReason ? (
+        <Text style={styles.generateHint}>{generateDisabledReason}</Text>
+      ) : null}
+
+      {reply ? (
+        <View ref={replyCardRef} style={styles.replyCard}>
+          <View style={styles.replyHeader}>
+            <Text style={styles.replyHeading}>YOUR QUIP</Text>
+            <Text style={styles.characterCount}>{reply.length} / {replyLimit}</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={isReplyExpanded ? 'Collapse quip' : 'Expand quip'}
+              accessibilityState={{ expanded: isReplyExpanded }}
+              onPress={() => setIsReplyExpanded((expanded) => !expanded)}
+              style={styles.expandReplyButton}
+            >
+              {isReplyExpanded ? <ChevronUp color={colors.brandDeep} size={16} /> : <ChevronDown color={colors.brandDeep} size={16} />}
+              <Text style={styles.expandReplyLabel}>{isReplyExpanded ? 'COLLAPSE' : 'EXPAND'}</Text>
+            </Pressable>
+          </View>
+          {!draftIsCurrent ? (
+            <Text accessibilityLiveRegion="polite" style={styles.generateHint}>Inputs changed. Generate again to update this Quip.</Text>
+          ) : null}
+          {isReplyExpanded ? (
+            <TextInput
+              accessibilityLabel="Editable quip"
+              editable={!inputsLocked}
+              autoCorrect
+              maxLength={replyLimit}
+              multiline
+              onChangeText={(text) => { setReply(text); setIsCopied(false); }}
+              style={styles.replyInput}
+              textAlignVertical="top"
+              value={reply}
+            />
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Expand quip to read and edit"
+              onPress={() => setIsReplyExpanded(true)}
+              style={styles.replyPreview}
+            >
+              <Text numberOfLines={5} style={styles.replyPreviewText}>{reply}</Text>
+              <Text style={styles.replyPreviewHint}>Tap to expand and edit</Text>
+            </Pressable>
+          )}
+          <Pressable accessibilityRole="button" onPress={() => void copyReply()} style={styles.copyButton}>
+            {isCopied ? <Check color={colors.brandDeep} size={16} /> : <Copy color={colors.brandDeep} size={16} />}
+            <Text style={styles.copyLabel}>{isCopied ? 'COPIED' : 'COPY QUIP'}</Text>
           </Pressable>
-          {!canGenerate && !isGenerating && generateDisabledReason ? (
-            <Text style={styles.generateHint}>{generateDisabledReason}</Text>
-          ) : null}
-
-          {reply ? (
-            <View ref={replyCardRef} style={styles.replyCard}>
-              <View style={styles.replyHeader}>
-                <Text style={styles.replyHeading}>YOUR QUIP</Text>
-                <Text style={styles.characterCount}>{reply.length} / {REPLY_LIMIT}</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={isReplyExpanded ? 'Collapse quip' : 'Expand quip'}
-                  accessibilityState={{ expanded: isReplyExpanded }}
-                  onPress={() => setIsReplyExpanded((expanded) => !expanded)}
-                  style={styles.expandReplyButton}
-                >
-                  {isReplyExpanded ? <ChevronUp color={colors.brandDeep} size={16} /> : <ChevronDown color={colors.brandDeep} size={16} />}
-                  <Text style={styles.expandReplyLabel}>{isReplyExpanded ? 'COLLAPSE' : 'EXPAND'}</Text>
-                </Pressable>
-              </View>
-              {!draftIsCurrent ? (
-                <Text accessibilityLiveRegion="polite" style={styles.generateHint}>Inputs changed. Generate again to update this Quip.</Text>
-              ) : null}
-              {isReplyExpanded ? (
-                <TextInput
-                  accessibilityLabel="Editable quip"
-                  editable={!inputsLocked}
-                  autoCorrect
-                  maxLength={REPLY_LIMIT}
-                  multiline
-                  onChangeText={(text) => { setReply(text); setIsCopied(false); }}
-                  style={styles.replyInput}
-                  textAlignVertical="top"
-                  value={reply}
-                />
-              ) : (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Expand quip to read and edit"
-                  onPress={() => setIsReplyExpanded(true)}
-                  style={styles.replyPreview}
-                >
-                  <Text numberOfLines={5} style={styles.replyPreviewText}>{reply}</Text>
-                  <Text style={styles.replyPreviewHint}>Tap to expand and edit</Text>
-                </Pressable>
-              )}
-              <Pressable accessibilityRole="button" onPress={() => void copyReply()} style={styles.copyButton}>
-                {isCopied ? <Check color={colors.brandDeep} size={16} /> : <Copy color={colors.brandDeep} size={16} />}
-                <Text style={styles.copyLabel}>{isCopied ? 'COPIED' : 'COPY QUIP'}</Text>
-              </Pressable>
-            </View>
-          ) : null}
         </View>
-        </ScrollView>
+      ) : null}
+    </View>
+  );
+
+  return (
+    <>
+      <View ref={quipViewportRef} style={styles.scrollViewport}>
+        <FlashList
+          ref={quipScrollRef}
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          data={isReplySourcesExpanded ? sourceBooks : NO_BOOKS}
+          keyExtractor={(item) => item.id}
+          renderItem={renderSourceBook}
+          extraData={[selectedBookIds, relevanceById, inputsLocked]}
+          ListHeaderComponent={listHeader}
+          ListFooterComponent={listFooter}
+          maintainVisibleContentPosition={{ disabled: true }}
+          drawDistance={200}
+          keyboardShouldPersistTaps="handled"
+          onScroll={(event) => { quipScrollOffset.current = event.nativeEvent.contentOffset.y; }}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+          alwaysBounceVertical
+          refreshControl={<RefreshControl refreshing={refreshing} enabled={!inputsLocked} onRefresh={inputsLocked ? undefined : onRefresh} tintColor={colors.brand} colors={[colors.brand]} />}
+        />
       </View>
 
       <TrendPickerSheet
@@ -688,7 +735,7 @@ const styles = StyleSheet.create({
   eyebrow: pageLayout.eyebrow,
   title: pageLayout.title,
   description: { color: colors.body, fontSize: type.body, lineHeight: 21, marginTop: spacing.xs },
-  seedCard: { padding: spacing.md, marginTop: spacing.md, borderRadius: radii.sheet, backgroundColor: colors.surface, shadowColor: colors.shadow, shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  seedSection: { marginTop: spacing.md },
   seedHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm },
   seedDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.brand },
   seedTitle: { color: colors.inkStrong, fontSize: type.bodySmall, fontWeight: '700', letterSpacing: 0.65 },
@@ -716,10 +763,10 @@ const styles = StyleSheet.create({
   characterCount: { color: colors.secondary, fontSize: type.label, fontWeight: '600', textAlign: 'right', marginTop: spacing.xs },
   replySourcesToggle: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
   replySourcesLabel: { color: colors.secondary, fontSize: type.caption, fontWeight: '700', letterSpacing: 0.4 },
-  replyBookList: { gap: spacing.xs, paddingBottom: spacing.sm },
+  sourceActions: { paddingBottom: spacing.xs },
   selectAllButton: { minHeight: 36, justifyContent: 'center', alignSelf: 'flex-start', paddingHorizontal: spacing.sm, borderRadius: radii.pill, backgroundColor: colors.brandPale },
   selectAllText: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '600' },
-  replyBookCard: { borderRadius: radii.lg },
+  replyBookCard: { borderRadius: radii.lg, marginBottom: spacing.xs },
   replyCheckbox: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 6 },
   replyCheckboxSelected: { borderColor: colors.brand, backgroundColor: colors.brand },
   relevanceFlag: { alignSelf: 'flex-start', flexShrink: 1, overflow: 'hidden', color: colors.brandDeep, backgroundColor: colors.brandPale, borderRadius: radii.sm, paddingHorizontal: 6, paddingVertical: 3, marginTop: 4, fontSize: type.label, fontWeight: '700' },

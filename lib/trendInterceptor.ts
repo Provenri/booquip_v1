@@ -35,7 +35,7 @@ export async function generateTrendReply(
       }
       throw new Error(error.message || 'Could not draft a trend reply.');
     }
-    return parseQuipResult(data, bookIds);
+    return parseQuipResult(data, bookIds, style);
   }, 'Reply generation timed out. Check your connection and try again.', signal);
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { FlashList } from '@shopify/flash-list';
 import { TrendingUp, X } from 'lucide-react-native';
-import { Modal, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Modal, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Pressable from '@/components/MotionPressable';
 import { loadQuipTrendTopics, type QuipTrendTopic } from '@/lib/quipTrends';
@@ -86,7 +86,10 @@ export default function TrendPickerSheet({ visible, onClose, onSelect }: TrendPi
           </View>
 
           {topicsStatus === 'loading' ? (
-            <Text style={styles.hint}>Loading recent topics…</Text>
+            <View accessibilityLiveRegion="polite" aria-busy style={styles.loading}>
+              <ActivityIndicator size="small" color={colors.brand} accessibilityLabel="Loading recent topics" />
+              <Text style={styles.loadingLabel}>Loading recent topics…</Text>
+            </View>
           ) : topicsStatus === 'error' ? (
             <View style={styles.loadError}>
               <Text style={styles.hint}>Trend suggestions couldn’t load. Check your connection and try again.</Text>
@@ -150,6 +153,8 @@ const styles = StyleSheet.create({
   countryTabLabel: { color: colors.secondary, fontSize: 11, fontWeight: '700' },
   countryTabLabelSelected: { color: colors.brandContrast },
   hint: { color: colors.muted, fontSize: 10, marginTop: 10 },
+  loading: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
+  loadingLabel: { color: colors.secondary, fontSize: type.caption },
   loadError: { alignItems: 'flex-start', marginTop: 10 },
   retryButton: { minHeight: 36, justifyContent: 'center', paddingHorizontal: spacing.sm, marginTop: spacing.xs, borderRadius: radii.pill, backgroundColor: colors.brandPale },
   retryLabel: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '700' },

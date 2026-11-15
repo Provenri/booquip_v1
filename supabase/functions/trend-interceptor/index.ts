@@ -207,7 +207,7 @@ edgeRuntime.serve(async (request: Request) => {
         return jsonResponse(502, { error: 'The AI service did not finish the Quip and relevance assessment. Please generate again.' });
       }
       try {
-        return jsonResponse(200, parseQuipResult(JSON.parse(reply), bookIds));
+        return jsonResponse(200, parseQuipResult(JSON.parse(reply), bookIds, style));
       } catch (error) {
         console.error('Invalid Quip generation response:', error);
         return jsonResponse(502, { error: 'The AI service returned an invalid Quip or incomplete book relevance. Please generate again.' });

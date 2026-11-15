@@ -12,6 +12,7 @@ export const QUIP_STYLES = [
   { id: 'challenging', label: 'Challenging' },
   { id: 'practical', label: 'Practical' },
   { id: 'empathetic', label: 'Empathetic' },
+  { id: 'concise', label: 'Concise' },
 ] as const;
 
 export const QUIP_RELEVANCE_LABELS = {
@@ -27,6 +28,7 @@ export type QuipRelevanceLevel = keyof typeof QUIP_RELEVANCE_LABELS;
 export type QuipBookRelevance = { bookId: string; level: QuipRelevanceLevel };
 export type QuipResult = { reply: string; relevance: QuipBookRelevance[] };
 export const QUIP_IDEA_LIMIT = 200;
+export const QUIP_CONCISE_LIMIT = 280;
 
 export function parseQuipIdea(value: unknown): string {
   if (!isRecord(value) || Object.keys(value).length !== 1 ||
@@ -52,8 +54,9 @@ function isRelevanceLevel(value: unknown): value is QuipRelevanceLevel {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(QUIP_RELEVANCE_LABELS, value);
 }
 
-export function parseQuipResult(value: unknown, bookIds: readonly string[]): QuipResult {
-  if (!isRecord(value) || typeof value.reply !== 'string' || !value.reply.trim() || value.reply.trim().length > 600) {
+export function parseQuipResult(value: unknown, bookIds: readonly string[], style: QuipStyle = 'natural'): QuipResult {
+  const replyLimit = style === 'concise' ? QUIP_CONCISE_LIMIT : 600;
+  if (!isRecord(value) || typeof value.reply !== 'string' || !value.reply.trim() || value.reply.trim().length > replyLimit) {
     throw new Error('The AI service returned an invalid Quip. Please generate again.');
   }
   const expectedIds = new Set(bookIds);

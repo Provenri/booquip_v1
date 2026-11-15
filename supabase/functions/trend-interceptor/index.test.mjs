@@ -237,7 +237,29 @@ test('all stance/style combinations send only their own guide and illustration, 
       }
     }
   }
-  assert.equal(calls.filter((call) => call.url.hostname === 'api.openai.com').length, 21);
+  assert.equal(calls.filter((call) => call.url.hostname === 'api.openai.com').length, QUIP_STANCES.length * QUIP_STYLES.length);
+});
+
+test('Concise uses the shorter prompt and rejects output beyond 280 characters without truncation', async (t) => {
+  let reply = 'x'.repeat(280);
+  const calls = setup(t, { content: () => JSON.stringify({ ...RESULT, reply }) });
+  t.mock.method(console, 'error', () => {});
+  for (const stance of QUIP_STANCES) {
+    const response = await handler(request({ stance: stance.id, style: 'concise' }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ...RESULT, reply });
+    const prompt = JSON.parse(calls.at(-1).init.body).messages[0].content;
+    assert.match(prompt, /1 to 2 sentences and no more than 280 characters/);
+    assert.doesNotMatch(prompt, /2 to 4 sentences|600 characters/);
+    assert.match(prompt, /independently of stance, style/);
+  }
+  reply += 'x';
+  const response = await handler(request({ style: 'concise' }));
+  assert.equal(response.status, 502);
+  assert.match((await response.json()).error, /invalid Quip/);
+  const natural = await handler(request({ style: 'natural' }));
+  assert.equal(natural.status, 200);
+  assert.deepEqual(await natural.json(), { ...RESULT, reply });
 });
 
 test('invalid preferences, empty/duplicate selections, and implicit relevance selections fail before any data or AI request', async (t) => {

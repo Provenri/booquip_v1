@@ -403,6 +403,7 @@ export default function DiscoverScreen() {
 
   useEffect(() => {
     dragX.set(0);
+    indicatorsVisible.set(0);
     setFailedCoverUri(null);
     setAdaptationsExpanded(false);
     shouldScrollToOnRamp.current = false;
@@ -419,7 +420,7 @@ export default function DiscoverScreen() {
       contentOpacity.set(withTiming(1, { duration: 160 }));
       bookOpacity.set(withTiming(1, { duration: 160 }));
     }
-  }, [book?.id, bookOpacity, contentOpacity, dragX, reducedMotion]);
+  }, [book?.id, bookOpacity, contentOpacity, dragX, indicatorsVisible, reducedMotion]);
 
   useEffect(() => {
     if (!onRampText || !isOnRampVisible || !shouldScrollToOnRamp.current) return;
@@ -562,9 +563,13 @@ export default function DiscoverScreen() {
   const finishSwipe = (action: Action, bookId: string | undefined) => {
     if (!bookId || selectedBookIdRef.current !== bookId) {
       dragX.set(0);
+      indicatorsVisible.set(0);
       return;
     }
-    void actionRef.current(action).finally(() => dragX.set(0));
+    void actionRef.current(action).finally(() => {
+      dragX.set(0);
+      indicatorsVisible.set(0);
+    });
   };
 
   const handleQuipToggle = (bookId: string) => {
@@ -609,9 +614,6 @@ export default function DiscoverScreen() {
     .onTouchesDown(() => {
       indicatorsVisible.set(withTiming(1, { duration: reducedMotion ? 0 : 140 }));
     })
-    .onTouchesUp(() => {
-      indicatorsVisible.set(withTiming(0, { duration: reducedMotion ? 0 : 180 }));
-    })
     .onStart(() => {
       isDragging.set(true);
       if (isWeb) scheduleOnRN(markCardHeld);
@@ -623,6 +625,7 @@ export default function DiscoverScreen() {
       if (!success) return;
       const action = getSwipeAction(event.translationX, event.translationY, event.velocityX, event.velocityY, canGoNext);
       if (!action) {
+        indicatorsVisible.set(withTiming(0, { duration: reducedMotion ? 0 : 180 }));
         resetCardPosition(event.velocityX);
         return;
       }
@@ -639,8 +642,10 @@ export default function DiscoverScreen() {
     })
     .onFinalize((_event, success) => {
       isDragging.set(false);
-      indicatorsVisible.set(withTiming(0, { duration: reducedMotion ? 0 : 180 }));
-      if (!success) resetCardPosition();
+      if (!success) {
+        indicatorsVisible.set(withTiming(0, { duration: reducedMotion ? 0 : 180 }));
+        resetCardPosition();
+      }
     });
 
   const revealBook = (chosenBook: Book) => {
@@ -1149,23 +1154,6 @@ export default function DiscoverScreen() {
                 {book ? (
                   <View style={styles.bookFeature}>
                     <View style={styles.bookGestureArea}>
-                      <Animated.View
-                        pointerEvents="none"
-                        accessible={false}
-                        accessibilityElementsHidden
-                        importantForAccessibility="no-hide-descendants"
-                        aria-hidden
-                        style={[styles.indicatorOverlay, indicatorStyle]}
-                      >
-                        <View style={[styles.directionIndicator, !canGoNext && styles.actionDisabled]}>
-                          <ArrowLeft color={colors.brandMuted} size={16} />
-                          <Text style={styles.indicatorText}>Next book</Text>
-                        </View>
-                        <View style={styles.directionIndicator}>
-                          <Text style={styles.indicatorText}>Move to shelf</Text>
-                          <ArrowRight color={colors.brandMuted} size={16} />
-                        </View>
-                      </Animated.View>
                       <GestureDetector gesture={cardGesture} touchAction="pan-y">
                         <Animated.View
                           ref={bookCardRef}
@@ -1183,25 +1171,44 @@ export default function DiscoverScreen() {
                             if (action === 'next' || action === 'tbr') void handleAction(action);
                           }}
                         >
-                          <View style={styles.coverShadow}>
-                            <View style={[styles.coverFrame, { backgroundColor: book.color }]}>
-                              <View style={styles.coverFallback}>
-                                <BookOpen color={colors.white} size={24} strokeWidth={1.5} />
-                                <Text style={styles.coverFallbackTitle}>{book.title}</Text>
-                                <Text style={styles.coverFallbackAuthor}>{book.author}</Text>
+                          <View style={styles.coverRow}>
+                            <View style={styles.coverShadow}>
+                              <View style={[styles.coverFrame, { backgroundColor: book.color }]}>
+                                <View style={styles.coverFallback}>
+                                  <BookOpen color={colors.white} size={24} strokeWidth={1.5} />
+                                  <Text style={styles.coverFallbackTitle}>{book.title}</Text>
+                                  <Text style={styles.coverFallbackAuthor}>{book.author}</Text>
+                                </View>
+                                {coverUri && failedCoverUri !== coverUri && (
+                                  <Image
+                                    accessibilityLabel={`Cover of ${book.title}`}
+                                    cachePolicy="memory-disk"
+                                    recyclingKey={coverUri}
+                                    onError={() => setFailedCoverUri(coverUri)}
+                                    source={{ uri: coverUri }}
+                                    style={styles.coverImage}
+                                    contentFit="cover"
+                                  />
+                                )}
                               </View>
-                              {coverUri && failedCoverUri !== coverUri && (
-                                <Image
-                                  accessibilityLabel={`Cover of ${book.title}`}
-                                  cachePolicy="memory-disk"
-                                  recyclingKey={coverUri}
-                                  onError={() => setFailedCoverUri(coverUri)}
-                                  source={{ uri: coverUri }}
-                                  style={styles.coverImage}
-                                  contentFit="cover"
-                                />
-                              )}
                             </View>
+                            <Animated.View
+                              pointerEvents="none"
+                              accessible={false}
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                              aria-hidden
+                              style={[styles.indicatorOverlay, indicatorStyle]}
+                            >
+                              <View style={[styles.directionIndicator, !canGoNext && styles.actionDisabled]}>
+                                <ArrowLeft color={colors.brandMuted} size={16} />
+                                <Text style={styles.indicatorText}>Next book</Text>
+                              </View>
+                              <View style={styles.directionIndicator}>
+                                <ArrowRight color={colors.brandMuted} size={16} />
+                                <Text style={styles.indicatorText}>Move to shelf</Text>
+                              </View>
+                            </Animated.View>
                           </View>
                           <View style={styles.bookHeaderText}>
                             <Text style={styles.bookTitle}>{book.title}</Text>
@@ -1499,9 +1506,10 @@ const styles = StyleSheet.create({
   bookChartSignalMeta: { color: colors.muted, fontSize: type.tiny, lineHeight: 12, marginTop: 1 },
   bookFeature: { maxWidth: 560, width: '100%', alignSelf: 'center' },
   bookGestureArea: { position: 'relative' },
-  bookHeader: { width: '75%', maxWidth: 360, alignSelf: 'center', alignItems: 'center', paddingTop: spacing.md, paddingBottom: spacing.xs },
-  bookHeaderText: { alignItems: 'center', width: '100%' },
-  coverShadow: { width: '80%', maxWidth: 240, shadowColor: colors.shadow, shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  bookHeader: { width: '100%', alignSelf: 'center', alignItems: 'center', paddingTop: spacing.md, paddingBottom: spacing.xs },
+  bookHeaderText: { alignItems: 'center', width: '75%', maxWidth: 360 },
+  coverRow: { width: '100%', alignItems: 'center' },
+  coverShadow: { width: '60%', maxWidth: 240, shadowColor: colors.shadow, shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
   coverFrame: { width: '100%', aspectRatio: 2 / 3, position: 'relative', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderRadius: radii.md },
   coverFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, gap: 6 },
   coverFallbackTitle: { color: colors.white, fontSize: type.footnote, fontWeight: '700', textAlign: 'center', lineHeight: 16 },
@@ -1540,8 +1548,8 @@ const styles = StyleSheet.create({
   onRampError: { color: colors.danger, fontSize: type.bodySmall, lineHeight: 16, marginTop: 8 },
   actionDisabled: { opacity: 0.55 },
   actionPressed: { backgroundColor: colors.brandSoft, transform: [{ scale: 0.98 }] },
-  indicatorOverlay: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.xs },
-  directionIndicator: { maxWidth: '48%', minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: spacing.xs, paddingVertical: 4, borderRadius: radii.pill, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceWarm },
+  indicatorOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  directionIndicator: { width: '18%', maxWidth: 120, minHeight: 36, alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: spacing.xxs, paddingVertical: spacing.xs, borderRadius: radii.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceWarm },
   indicatorText: { color: colors.body, fontSize: type.bodySmall, fontWeight: '700', textAlign: 'center', flexShrink: 1 },
   emptyState: { maxWidth: 860, width: '100%', minHeight: 300, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', padding: 30, borderWidth: 1, borderColor: colors.border, borderRadius: radii.lg, backgroundColor: colors.surface },
   emptyIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
