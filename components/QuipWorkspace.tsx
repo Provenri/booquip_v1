@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { BookOpen, Check, Copy, MessageCircle, Sparkles } from 'lucide-react-native';
+import { ArrowLeftRight, BookOpen, Check, Copy, Sparkles } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Pressable from '@/components/MotionPressable';
@@ -9,6 +9,7 @@ import type { Book } from '@/lib/books';
 import type { QuipGenerationOptions } from '@/lib/trendInterceptor';
 import { quipInputsMatch, type QuipDraftInputs } from '@/lib/quipSelection';
 import { loadQuipBookDrafts } from '@/lib/quipCache';
+import { formatQuipTopicReason } from '@/lib/quipTopic';
 import {
   QUIP_REPLY_LIMIT, QUIP_STANCES, SINGLE_BOOK_QUIP_STYLES,
   type QuipStance, type SingleBookQuipStyle,
@@ -39,7 +40,6 @@ export default function QuipWorkspace({
 }: QuipWorkspaceProps) {
   const [path, setPath] = useState<'ready-made' | 'craft' | null>(null);
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [pendingBookId, setPendingBookId] = useState<string | null>(null);
   const [seed, setSeed] = useState('');
   const [stance, setStance] = useState<QuipStance>('neutral');
   const [style, setStyle] = useState<SingleBookQuipStyle>('natural');
@@ -137,12 +137,20 @@ export default function QuipWorkspace({
   const selectBook = (bookId: string) => {
     onSelectBook(bookId);
     setPath(null);
-    setPendingBookId(null);
+    setSeed('');
+    setStance('neutral');
+    setStyle('natural');
+    setConsent(false);
+    setReply('');
+    setReplySource(null);
+    setGeneratedInputs(null);
     setPendingVariant(null);
     setPickerVisible(false);
     setError('');
     setCopied(false);
     setCopiedReadyMade(false);
+    shouldScrollToReply.current = false;
+    scroll.current?.scrollTo({ y: 0, animated: false });
   };
 
   const generate = async () => {
@@ -239,7 +247,7 @@ export default function QuipWorkspace({
               {selectedBook ? <Text style={styles.hint}>{selectedBook.author} · {canCraft ? 'Finished' : 'To read'}</Text> : null}
             </View>
             <Pressable accessibilityRole="button" disabled={busy} onPress={() => setPickerVisible(true)} style={styles.secondaryButton}>
-              <MessageCircle color={colors.brandDeep} size={15} />
+              {selectedBook ? <ArrowLeftRight color={colors.brandDeep} size={15} /> : <BookOpen color={colors.brandDeep} size={15} />}
               <Text style={styles.buttonText}>{selectedBook ? 'Change' : 'Choose'}</Text>
             </Pressable>
           </View>
@@ -259,23 +267,11 @@ export default function QuipWorkspace({
           ) : null}
           {selectedBook && variants[0] ? (
             <View style={styles.bookTopic}>
-              <Text style={styles.topicTitle}>{variants[0].topic}</Text>
-              <Text style={styles.topicReason}>{variants[0].topic_reason}</Text>
+              <Text style={styles.topicTitle}>{variants[0].topic.charAt(0).toUpperCase() + variants[0].topic.slice(1)}</Text>
+              <Text style={styles.topicReason}>{formatQuipTopicReason(variants[0].topic_reason)}</Text>
             </View>
           ) : null}
         </View>
-        {pendingBookId ? (
-          <View style={styles.card}>
-            <Text style={styles.body}>
-              Change books? Your idea and current draft will be kept, but the draft stays tied to {selectedBook?.title ?? 'the previous book'} until you generate or select a Quip for the new book.
-              {' '}Crafting is available only for Finished books.
-            </Text>
-            <View style={styles.row}>
-              <Pressable accessibilityRole="button" onPress={() => selectBook(pendingBookId)} style={styles.secondaryButton}><Text style={styles.buttonText}>Change book</Text></Pressable>
-              <Pressable accessibilityRole="button" onPress={() => setPendingBookId(null)} style={styles.secondaryButton}><Text style={styles.buttonText}>Cancel</Text></Pressable>
-            </View>
-          </View>
-        ) : null}
         {selectedBook ? (
           <>
             <View style={styles.row}>
@@ -425,8 +421,7 @@ export default function QuipWorkspace({
         onSelect={(id) => {
           setPickerVisible(false);
           if (id === selectedBookId) return;
-          if (seed.trim() || reply) setPendingBookId(id);
-          else selectBook(id);
+          selectBook(id);
         }} onClose={() => setPickerVisible(false)} /> : null}
     </>
   );
@@ -449,7 +444,7 @@ const styles = StyleSheet.create({
   cacheError: { marginTop: spacing.sm },
   bookTopic: { padding: spacing.sm, marginTop: spacing.sm, borderRadius: radii.md, backgroundColor: colors.brandPale },
   topicTitle: { color: colors.inkStrong, fontSize: type.body, lineHeight: 20, fontWeight: '700' },
-  topicReason: { color: colors.secondary, fontSize: type.caption, lineHeight: 17, marginTop: spacing.xxs },
+  topicReason: { color: colors.secondary, fontSize: type.body, lineHeight: 22, marginTop: spacing.xxs },
   heading: { color: colors.inkStrong, fontSize: type.subtitle, fontWeight: '700', marginVertical: spacing.xs },
   label: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '700', marginTop: spacing.xs },
   body: { color: colors.body, fontSize: type.body, lineHeight: 22 },

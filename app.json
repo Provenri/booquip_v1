@@ -21,14 +21,6 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "BooQuip uses your photo library so you can upload a screenshot of a post to reply to.",
-          "cameraPermission": false,
-          "microphonePermission": false
-        }
-      ],
       "expo-font"
     ],
     "experiments": {

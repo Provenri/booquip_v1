@@ -20,7 +20,13 @@
 
 ## Book Catalog
 
-When Supabase is configured, the app loads book metadata from `public.books`, category labels from `public.pillars`, and adaptations from `public.book_adaptations`; the bundled data in `lib/books.ts` remains a local/offline fallback if Supabase is unavailable. The catalog contains 80 records: 30 active Screen books and 50 archived records retained for existing user shelves and history. Add future books and adaptations through migrations so configured clients share one source.
+### Retired migration history
+
+The retired Substack-curation setup migrations `202611120008`, `202611120009`, and `202611120010` have been removed. The later `202611120011_remove_substack_curation.sql` remains: its conditional drops also handle databases that previously installed curation, and its taxonomy changes are part of the catalog migration chain. Trend-table migrations remain because legacy `trend-interceptor` requests still read those tables.
+
+Existing projects may still record the three removed versions in `supabase_migrations.schema_migrations`. Before the next database push, inspect `npx supabase migration list` against the intended linked project. If those versions are recorded remotely, restore the historical files from Git or deliberately reconcile the migration ledger after reviewing a backup and the database state. Do not repair migration history blindly. This repository cleanup does not change remote schema or migration records.
+
+When Supabase is configured, the app loads book metadata from `public.books`, category labels from `public.pillars`, and adaptations from `public.book_adaptations`; the bundled data in `lib/books.ts` remains a local/offline fallback if Supabase is unavailable. Archived books remain available to existing shelves and history, while chart sync can add active catalog entries. Add curated books and adaptations through migrations so configured clients share one source.
 
 ## Book Taglines
 
@@ -108,6 +114,10 @@ Discovery cards display three stored keywords when available. Apply the latest m
 
 The hourly `global-chart-sync` job also requires the deployed function, the `CHART_SYNC_SECRET` function secret, and the `chart_sync_url` and `chart_sync_secret` Vault entries described by the scheduling migration. Until the migration is applied and the sync runs, the new keyword data is not available.
 
+Google Trends collection, related-news caching, and AI trend summaries have been retired from `global-chart-sync`. Deploy the updated function with `npx supabase functions deploy global-chart-sync` to stop that work in the scheduled job. Book-chart ingestion, Open Library ratings snapshots, approved cover imports, keywords, and taglines remain unchanged. The sync report no longer includes `googleTrends`, and `OPENAI_TREND_SUMMARY_MODEL` is no longer used. Existing Quip trend tables and their migrations are retained; this change does not delete stored data.
+
+Run the chart-sync handler regression test with `node --experimental-test-module-mocks --test supabase/functions/global-chart-sync/index.test.mjs`. It mocks the cover importer and network requests; no deployed services are called.
+
 ## TMDb Adaptation Matching
 
 `TMDB_API_KEY` is held as a Supabase Function secret. The one-time `tmdb-adaptation-sync` function searches only pending curated adaptations, sequentially with a 300 ms pause, and stores a TMDb ID only when media type, normalized title, and release year all match exactly. It then requests credits once for each exact match and caches only the first three credited names. It stores lookup/credits check times so completed records are not repeatedly queried. It does not retrieve posters, overviews, or provider listings, and the app makes no TMDb requests while users browse.
@@ -126,34 +136,35 @@ The function uses Supabase's server-side `SUPABASE_SERVICE_ROLE_KEY` runtime sec
 
 ## AI On-Ramp
 
-The book-card on-ramp runs in the `book-on-ramp` Edge Function. Keep the OpenAI API key in Supabase Functions secrets, never in an `EXPO_PUBLIC_` variable:
+The book-card **30s read** loads from `book_on_ramp_cache`; the legacy live-generation `book-on-ramp` Edge Function has been removed. The shared prompt and admin cache generator remain in use. Generate cached reads from a trusted admin environment using server-only `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `OPENAI_API_KEY`:
 
 ```bash
-npx supabase secrets set OPENAI_API_KEY=your-openai-api-key
-npx supabase functions deploy book-on-ramp
+npm run onramp:cache -- --limit 5
 ```
 
-The function requires a signed-in Supabase session and uses `gpt-4o-mini` by default. To choose another supported model for this feature only, set the server-side `OPENAI_BOOK_ON_RAMP_MODEL` secret. Future AI functions should use their own model setting, such as `OPENAI_SOCIAL_GHOSTWRITER_MODEL`, so changing one feature never changes another.
+The generator uses `gpt-4o-mini` by default; `OPENAI_BOOK_ON_RAMP_MODEL` optionally selects another model. To remove an existing deployed legacy endpoint, run `npx supabase functions delete book-on-ramp` against the intended linked project. Older installed builds that still call that endpoint will no longer be able to generate live reads after deletion; current clients continue using cached reads.
 
-## Social Ghostwriter
+## Legacy Social Ghostwriter
 
-The Read shelf's **Draft** action opens an editable LinkedIn or X post. The authenticated `social-ghostwriter` Edge Function verifies that the selected book is in the caller's Read shelf before generating a draft. It uses `gpt-4o` by default, independently of the On-Ramp model; to choose another supported model, set `OPENAI_SOCIAL_GHOSTWRITER_MODEL` as a Supabase Function secret.
+The current app has no social-post Draft action. The retained `social-ghostwriter` Edge Function supports legacy callers, verifies the selected book against the caller's Read shelf, and uses `gpt-4o` by default. `OPENAI_SOCIAL_GHOSTWRITER_MODEL` optionally selects another model.
 
 ```bash
 npx supabase functions deploy social-ghostwriter
 ```
 
-## Trend Interceptor
+## Quip Generation
 
-The Quip page sends reviewed seed text from writing, screenshot extraction, or a selected trend to the authenticated `trend-interceptor` Edge Function; nothing is published automatically. The function verifies selected books against the caller's RLS-protected, Quip-enabled Read-shelf rows and limits seed text to 2,000 characters. When a trend ID is provided, its current topic and related headlines are loaded as context. It uses `gpt-4o` by default; set `OPENAI_TREND_INTERCEPTOR_MODEL` as a Supabase Function secret to choose another model that supports JSON-object responses.
+The screenshot input and `screenshot-topic-reader` function have been removed from the repository. To retire an existing deployed endpoint, run `npx supabase functions delete screenshot-topic-reader` against the intended linked project. Removing local source does not delete a deployed function.
 
-New clients send explicit nonempty `bookIds`, `includeRelevance: true`, `stance` (`pro`, `neutral`, `cons`), and `style` (`natural`, `curious`, `reflective`, `witty`, `challenging`, `practical`, `empathetic`, `concise`). Omitted stance/style default to Neutral + Natural, retaining the original writing instructions. Concise replaces the usual writing length with 1–2 sentences and at most 280 characters; both server and client reject longer results instead of truncating them. Other styles retain their 600-character limit. One model call returns `{ reply, relevance: [{ bookId, level }] }`, with `level` one of `high`, `medium`, `low`, `insufficient`. Relevance is to the seed, independently of stance/style and actual use in the reply, based only on supplied metadata and short takes. Every selected book must have exactly one assessment; missing, duplicate, foreign IDs, invalid flags, truncated output, and oversized Quips are rejected. Ineligible selections return an error instead of silently generating from a subset. Deselected books are never loaded into the model context. No schema migration is required.
+The current Quip page sends the user's idea and exactly one Finished book ID to the authenticated `trend-interceptor` Edge Function with `workflow: "single-book"`. It verifies ownership through the caller's RLS-protected Read-shelf row without requiring the legacy `quip_enabled` flag. Seed text is limited to 2,000 characters. Nothing is published automatically.
 
-Book-based idea generation sends `{ mode: "idea", bookIds: [...] }` to the same authenticated endpoint. Explicit selected IDs are required and undergo the same Read-shelf/Quip-enabled verification. Seed, trend, stance, style, and relevance inputs are rejected in this mode and are not sent to OpenAI. One JSON-mode model call uses only selected-book metadata and short takes, connecting books when justified or choosing one standalone idea. The prompt makes clear that one book and a short or truncated but substantive summary can be sufficient; ranking-only or promotional information is not. This guidance cannot guarantee the model's judgment. It returns `{ idea }`; empty, malformed, extra-field, truncated, or over-200-character results are rejected rather than silently shortened. When the model reports insufficient summaries, the endpoint returns a descriptive 422 error instead of a seed. The app inserts a valid idea into the editable seed, requires AI consent for both idea and Quip generation, and keeps screenshot consent separate. Consent is a client UX control, not a new server authorization mechanism or stored legal record.
+Clients send `stance` (`pro`, `neutral`, `cons`) and `style` (`natural`, `curious`, `witty`); the UI labels `natural` as Neutral. The response is `{ "reply": "..." }`, with a maximum of 280 characters enforced by server and client. Relevance options and other styles are rejected for this workflow. The function uses `gpt-4o` by default; set the server-only `OPENAI_TREND_INTERCEPTOR_MODEL` secret to choose another model supporting JSON-object responses. The client imposes a 60-second generation deadline.
 
-Deploy this function before distributing the updated app, including builds that expose Concise; older deployments reject that new style. Older clients that omit `includeRelevance` retain the plain `{ reply }` response, original prompt, and original token budget. Enhanced Quip and idea generation have a 45-second model timeout and a 60-second app timeout. The app bounds the wait even if a transport ignores cancellation. The 30s-read client has a 30-second deadline and cancels on book changes; no on-ramp backend changes are required. UI changes require a fresh app build.
+Ready-made Quips load from the shared book cache, not this endpoint. See the [Quip setup and cache-generation instructions](../README.md#quip) for migrations, admin credentials, and batch commands. Both To read and Finished books can use ready-made Quips; only Finished books can use custom generation.
 
-Style guidance requires a recognizable technique: Natural makes one plainspoken point, Curious asks a genuine open-ended question, Reflective develops a tension or implication, Witty adds a playful turn, Challenging questions an explicit assumption, Practical offers a concrete next step, and Empathetic acknowledges a relevant human difficulty without assuming personal circumstances. Witty, Challenging, and Empathetic include stance-matched technique illustrations that must not be copied. The model is instructed to check and revise its draft within the same generation request, without a separate model call or validator. The existing Neutral + Natural prompt is deliberately unchanged; Natural's stronger guidance applies to Pro and Cons. Prompt guidance improves consistency but does not guarantee style adherence, so review real outputs when tuning it. These backend-only refinements need no app layout change, database migration, or new APK.
+Requests without `workflow` retain legacy multi-book, trend-context, relevance, extra-style, and idea-generation support. Those compatibility paths are not exposed by the current UI and still require Quip-enabled Read books. The current app has no screenshot input, trend picker, or automatic idea-generation action. AI consent is a client UX control, not server authorization or a stored legal record.
+
+Deploy the updated function before distributing single-book clients:
 
 ```bash
 npx supabase functions deploy trend-interceptor

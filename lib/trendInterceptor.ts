@@ -1,6 +1,6 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { isRecord, parseQuipIdea, parseSingleBookQuip, type QuipStance, type SingleBookQuipStyle } from '@/supabase/functions/_shared/quip';
+import { isRecord, parseSingleBookQuip, type QuipStance, type SingleBookQuipStyle } from '@/supabase/functions/_shared/quip';
 import { withAiTimeout } from '@/lib/aiRequest';
 
 export type QuipGenerationOptions = { stance: QuipStance; style: SingleBookQuipStyle; signal?: AbortSignal };
@@ -37,24 +37,4 @@ export async function generateTrendReply(
     }
     return parseSingleBookQuip(data);
   }, 'Reply generation timed out. Check your connection and try again.', signal);
-}
-
-export async function generateQuipIdea(bookIds: string[], signal?: AbortSignal): Promise<string> {
-  if (!supabase) throw new Error('Connect Supabase to suggest a Quip idea.');
-  const client = supabase;
-  if (bookIds.length !== 1) throw new Error('Select exactly one book to generate a Quip seed.');
-  return withAiTimeout(async (requestSignal) => {
-    const { data, error } = await client.functions.invoke('trend-interceptor', {
-      body: { mode: 'idea', workflow: 'single-book', bookIds },
-      signal: requestSignal,
-    });
-    if (error) {
-      if (error instanceof FunctionsHttpError) {
-        const body: unknown = await error.context.json();
-        if (isRecord(body) && typeof body.error === 'string') throw new Error(body.error);
-      }
-      throw new Error(error.message || 'Could not suggest a Quip idea.');
-    }
-    return parseQuipIdea(data);
-  }, 'Idea generation timed out. Check your connection and try again.', signal);
 }

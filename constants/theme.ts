@@ -26,8 +26,6 @@ export const colors = {
   dangerDeep: '#a34c43',
   dangerMuted: '#805e58',
   dangerSoft: '#f5ebe7',
-  warm: '#d7805b',
-  blue: '#476da1',
   blueMuted: '#536d99',
   blueSoft: '#f3f5f8',
   gold: '#8a6e46',
@@ -37,9 +35,6 @@ export const colors = {
   shadow: '#13241c',
   navMuted: '#8a9991',
   navText: '#bdc8c0',
-  saveAction: '#337e69',
-  readAction: '#476da1',
-  snoozeAction: '#8a6e46',
 } as const;
 
 export const spacing = {
@@ -50,11 +45,9 @@ export const spacing = {
   lg: 20,
   xl: 24,
   xxl: 32,
-  xxxl: 48,
 } as const;
 
 export const radii = {
-  sm: 8,
   md: 14,
   lg: 20,
   sheet: 26,
@@ -76,8 +69,6 @@ export const type = {
   brand: 21,
   sectionTitle: 24,
   title: 28,
-  bookTitle: 29,
-  display: 32,
 } as const;
 
 export const pageLayout = {

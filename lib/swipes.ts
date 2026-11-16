@@ -59,22 +59,6 @@ export async function saveUserSwipe(
   if (error) throw error;
 }
 
-export async function saveQuipEnabled(userId: string, bookId: string, enabled: boolean) {
-  if (!supabase) return;
-
-  const { data, error } = await supabase
-    .from('user_swipes')
-    .update({ quip_enabled: enabled, updated_at: new Date().toISOString() })
-    .eq('user_id', userId)
-    .eq('book_id', bookId)
-    .eq('state', 'read')
-    .select('book_id')
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) throw new Error('This book is no longer on your Read shelf.');
-}
-
 export async function deleteUserSwipe(userId: string, bookId: string) {
   if (!supabase) return;
 

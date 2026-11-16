@@ -24,18 +24,20 @@ After applying the 30s-read cache migration, generate reads from a trusted admin
 
 Apply the 30s-read migration before distributing the updated app, and populate the cache before rollout so books have reads available. The new app never falls back to live generation; books without a current cached read show an unavailable message.
 
+The legacy `book-on-ramp` function source has been removed. Retire a deployed copy with `npx supabase functions delete book-on-ramp`; older builds that call it will lose live reads after deletion. The cache generator and current cached **30s read** feature remain available.
+
 Pull down on Book, Quip, Library, or any shelf page to reload catalog metadata, category availability, rankings, and shelf state without discarding a Quip draft or existing source selections. Refresh failures are shown in the page; local preview rechecks its in-memory state.
 
-Screen books remain active. Former Civilization/Digital titles are archived rather than deleted, preserving existing TBR, Read, and snooze records while removing them from new discovery. Charts and Classics start empty for future curation.
+Screen books remain active. Former Civilization/Digital titles are archived rather than deleted, preserving existing TBR, Read, and snooze records while removing them from new discovery. Category availability follows the loaded catalog.
 
 ### Quip
 Quip starts with **one book from To read or Finished**. Swipe right on a shelf book or tap **Quip** to open the workspace with that book selected; it stays on its shelf. **Change book** opens a virtualized picker covering both shelves and identifies each book's available actions. Opening Quip directly lets users choose a book. A left swipe or **Return** removes a book from the shelf and offers **Undo** to restore its shelf and previous legacy Quip setting. Horizontal gestures ignore vertical scrolling; visible buttons provide alternatives to swiping. Snoozed books retain their existing Wake action.
 
 After selecting a book, choose **Explore ready-made Quips** or **Craft a Quip**. Both shelves allow ready-made drafts; crafting is available only for Finished books and is checked again by the backend. The old Quip on/off switch is no longer needed in the new UI; older multi-book clients retain their Quip-enabled shelf filter.
 
-**Craft a Quip** reveals an idea box with the placeholder “Share a thought or paste a post. Bring this book’s perspective to the conversation.” The placeholder is not submitted as content. The new journey does not include Idea, Trends, Screenshot, or Suggest a book. Check the initially unchecked **I agree to send Quip inputs to OpenAI** checkbox, then tap **Generate Quip**. The idea and selected book's metadata/summary are sent via Supabase; the model does not read the full book. Consent lasts only while the workspace remains mounted. Remove private or sensitive information before submitting. Nothing is published automatically.
+**Craft a Quip** reveals an idea box with the placeholder “Share a thought or paste a post. Bring this book’s perspective to the conversation.” The placeholder is not submitted as content. The new journey does not include Idea, Trends, Screenshot, or Suggest a book. Check the initially unchecked **I agree to send Quip inputs to OpenAI** checkbox, then tap **Generate Quip**. The idea and selected book's metadata/summary are sent via Supabase; the model does not read the full book. Consent lasts only while the workspace remains mounted and resets when changing books. Remove private or sensitive information before submitting. Nothing is published automatically.
 
-Crafting offers **Stance** (Pro, Neutral, Cons) and **Style** (Neutral, Curious, Witty), defaulting to Neutral for both. The Neutral style keeps the internal `natural` value. Quips request 1–2 sentences and are capped at **280 characters**, enforced by the backend, response parser, and editor. Changing books asks for confirmation if there is an idea or draft; both are kept, but a draft from the previous book is clearly marked and remains tied to that book until regenerated. Custom drafts are also marked stale when their other inputs change. Switching to a To read book exits crafting. Inputs are locked during generation, and stale or unfinished responses are not presented as new drafts.
+Crafting offers **Stance** (Pro, Neutral, Cons) and **Style** (Neutral, Curious, Witty), defaulting to Neutral for both. The Neutral style keeps the internal `natural` value. Quips request 1–2 sentences and are capped at **280 characters**, enforced by the backend, response parser, and editor. Selecting a different book switches immediately and clears the current idea and draft, resets the selected path and preferences, and unchecks consent. Selecting the current book or closing the picker leaves the workspace unchanged. Custom drafts are marked stale when their inputs change. Inputs are locked during generation, and stale or unfinished responses are not presented as new drafts.
 
 The selected book's cache loads in the background so its topic and explanation remain in the book card while the user moves between Quip paths. Only the selected book's cache is loaded; it contains up to nine drafts. **Explore ready-made Quips** lets users choose a **Stance** (Pro, Neutral, Cons) and **Style** (Neutral, Curious, Witty) to preview one saved version at a time. The selected values remain visible in the controls, outside the Quip preview. Choose **Edit this Quip** to load it into the editor or **Copy as-is** to copy the saved text directly without replacing the editor. Replacing an existing draft requires confirmation. These are pre-generated alternatives, not controls that trigger generation, and no user idea is sent to OpenAI. Missing caches and load errors have explicit messages and retry. Loaded drafts are reused in memory while the workspace remains mounted; refresh clears that cache. Shelf pages do not load Quip drafts.
 
@@ -45,40 +47,18 @@ Crafting shows **Crafting…** during generation. Duplicate submissions and conf
 
 **Deployment:** apply the Quip-cache migration and deploy `supabase functions deploy trend-interceptor` before distributing the updated app. New clients send `workflow: "single-book"` with exactly one Finished book ID. This workflow no longer requires `quip_enabled`, but still rejects books outside Finished, unsupported styles, and relevance options, returning only `{ "reply": "..." }`. Requests without the workflow field retain existing multi-book, relevance, style, and length behaviour and the legacy Quip-enabled filter. No new dependency is required. Ready-made Quips remain unavailable until the trusted batch generator is run; crafting does not depend on cache entries.
 
-### 🤖 BooQuip AI Companion
-* **Intellectual On-Ramp:** Translates dense historical classics into 30-second modern analogies right on the reveal card.
-* **Social Ghostwriter & Trend Interceptor:** Uses one selected Finished book to draft short, book-informed replies to a user's idea. Nothing is published automatically.
-
-### 🌐 Web Companion & Public Share Cards (`booquip.app`)
-* **Landing & Interactive Demo:** Public marketing page with a live try-before-you-download single-card demo and App Store / Google Play badges.
-* **Public Taste Constellations:** Shareable profile URLs (`booquip.app/u/[username]`) linked from *"Forged on BooQuip"* social posts.
-* **Desktop AI Studio:** Logged-in web app allowing desktop users to review their TBR shelf and generate LinkedIn/X threads directly beside their open social tabs.
-
----
-
 ## 🔐 Authentication & User Management (Supabase Auth)
 
-BooQuip syncs user shelves, swipe states, and *Humanity Quotient* metrics seamlessly across iOS, Android, and Web (`booquip.app`) using **Supabase Auth**:
-
-   * Launches immediately using **Supabase Anonymous Sign-Ins** so new users can tap and swipe cards with zero login friction.
-   * Prompts account creation after **3 Right Swipes (TBR)** or upon opening the **AI Social Studio**, automatically merging guest swipes into the permanent account.
-2. **Sign-In Providers:**
-   * **Continue with Apple** (mandatory for iOS App Store compliance).
-   * **Continue with Google** (fast Android and desktop web sign-in).
-   * **Email Magic Link** (passwordless authentication).
-3. **Profile & Tier Management (`public.profiles`):**
-   * Auto-provisioned via PostgreSQL trigger upon registration.
-   * Tracks `username` (for public share URLs), `tier` (`free` vs. `pro`), `daily_spins_used` (10/day cap on free tier), and `hq_score` / `taste_map` stats.
-   * Protected via PostgreSQL **Row-Level Security (RLS)** so users only read/write their own private swipes while public profile stats remain shareable.
-4. **App Store & Play Store Compliance (Self-Serve Deletion):**
-   * Includes an in-app **"Delete Account & Data"** setting backed by a `delete-user-account` Edge Function that permanently wipes the `auth.users` record and all cascading swipe/profile data.
+* With Supabase configured, anonymous sign-in lets guests browse and save books without creating an account first. Row-level security protects each user's shelf.
+* The account panel links an email to the existing guest account, preserving its user ID and shelf. Email confirmation completes linking; returning users sign in with an email magic link.
+* Confirmed, linked users can choose **Delete Account & Data**. The `delete-user-account` Edge Function deletes the authenticated user and cascading profile/swipe records.
+* Without Supabase configuration, local preview keeps shelf changes only for the current session.
 
 ---
 
 ## 🎨 Brand Identity & Visual System
 
 * **Brand Name:** BooQuip
-* **Primary Mark:** Mint speech-bubble open book icon (`#3ED19A`) paired with deep slate charcoal (`#1E2E30`) and crisp off-white (`#F6F8F8`).
 
 ### Mobile UI foundations
 
@@ -93,23 +73,21 @@ The Expo SDK 54 app uses Reanimated and Gesture Handler for native swipe and pre
 * **Web Hosting & CDN:** Vercel (Free Tier — auto-deploys static Expo Web builds from GitHub)
 * **Mobile Store Compiles:** Expo Application Services (EAS Build — compiles iOS `.ipa` and Android `.aab` without a Mac)
 * **Backend, Auth & Database:** Supabase (PostgreSQL, Auth, Edge Functions, Storage)
-* **Data Ingestion Workers:** Python Cron Jobs hosted on Render
-* **AI Orchestration (Pay-As-You-Go API):**
-  * `gpt-4o-mini` (Structured JSON metadata tagging & Cognitive Load scoring)
-  * `gpt-4o` (Live AI On-Ramp, Book Club Debriefs, & Social Media Ghostwriting)
+* **Catalog Sync:** Scheduled Supabase Edge Function for book charts and metadata enrichment
+* **AI:** Server-side OpenAI calls for custom Quips and catalog enrichment; trusted Node.js batch generators for cached Quips and 30s reads
 
 ---
 
 ## 📂 Repository Structure
 ```text
-├── app/ # Expo Router universal screens (Landing, Discover, Shelf, AI Studio, Profile, Auth)
-├── assets/ # Brand marks (mint speech-bubble book icon, splash screens, favicons)
-├── components/ # Cross-platform UI (CategoryPillBar, FourWaySwiper, TasteConstellation, AuthModal)
-├── lib/ # Supabase client, Auth session provider, OpenAI hooks, & state management (Zustand)
+├── app/ # Expo Router entry, layout, Book/Quip navigation, and shelves
+├── components/ # Book cards, Quip workspace/picker, and account panel
+├── constants/ # Shared theme tokens
+├── lib/ # Catalog, shelves, authentication, cache clients, and Quip helpers
+├── pipeline/ # Trusted admin cache generators and approved cover tools
 ├── supabase/
-│ ├── functions/ # Edge Functions (ai-on-ramp, social-ghostwriter, trend-interceptor, delete-user-account)
+│ ├── functions/ # Catalog sync, Quip generation, account deletion, and compatibility endpoints
 │ └── migrations/ # PostgreSQL database schemas, auto-profile triggers, & RLS policies
-├── .devcontainer/ # GitHub Codespaces environment setup
 └── README.md
 ```
 
@@ -117,20 +95,19 @@ The Expo SDK 54 app uses Reanimated and Gesture Handler for native swipe and pre
 
 
 ### 1. Prerequisites
-* A free [Supabase](https://supabase.com) account (with Anonymous Sign-Ins, Apple, Google, and Email enabled under Authentication)
-* An [OpenAI API](https://openai.com) pay-as-you-go key
-* A free [TMDb API](https://themoviedb.org) key (for movie/TV adaptation metadata)
+* A [Supabase](https://supabase.com) project with Anonymous Sign-Ins and Email enabled for synced shelves and email accounts; see [backend setup](supabase/README.md).
+* Server-only [OpenAI API](https://openai.com) credentials for AI features, and a [TMDb API](https://themoviedb.org) key only when running adaptation sync.
 * An EAS development or preview build installed on your physical iPhone or Android device
 
 ### 2. Environment Setup
-Create a `.env` file in the root directory and populate your keys:
+Create a `.env` file in the root directory with public app configuration:
 
 ```env
 EXPO_PUBLIC_SUPABASE_URL=your_supabase_project_url
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-OPENAI_API_KEY=your_openai_api_key
-TMDB_API_KEY=your_tmdb_api_key
 ```
+
+Keep OpenAI, TMDb, and service-role credentials in trusted admin environments or Supabase Function secrets, not the app configuration.
 
 ### 3. Install Dependencies & Run Dev Servers
 Run the following commands inside your Codespaces terminal:
@@ -194,14 +171,10 @@ The first Google Play upload may need to be done manually in Play Console.
 
 For native email sign-in, allow `booquip://` and `booquip:///` in Supabase Auth's
 redirect URL settings. Verify magic links on a real installed build, along with
-screenshot uploads, trend-picker navigation, keyboard layout, shelf sync,
+keyboard layout, shelf sync,
 and account deletion. A successful cloud build alone does not verify these flows.
 
-Camera and microphone permissions are disabled; screenshot input uses only the
-photo library. Android and iOS builds can be compiled with EAS from Linux;
+Screenshot input and its image-picker dependency/plugin have been removed. Rebuild
+native apps to apply the removal; existing installed binaries are unchanged.
+Android and iOS builds can be compiled with EAS from Linux;
 no local Mac is needed for cloud builds.
-
----
-- [ ] **Phase 3: Core Discovery Loop** — Use the Book/Quip library hub, Screen/Charts/Classics categories, Search and Surprise Me, and the three TBR/Read/Snooze actions.
-- [ ] **Phase 4: AI Integration** — Connect Supabase Edge Functions for the *AI On-Ramp*, *Social Post Generator*, and *Account Deletion*.
-- [ ] **Phase 5: Web & Mobile Beta Launch** — Deploy web companion to Vercel (`booquip.app`) and mobile builds via Apple TestFlight and Google Play Internal Testing.
