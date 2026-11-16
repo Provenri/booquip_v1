@@ -24,11 +24,24 @@ export const QUIP_RELEVANCE_LABELS = {
 
 export type QuipStance = typeof QUIP_STANCES[number]['id'];
 export type QuipStyle = typeof QUIP_STYLES[number]['id'];
+export type SingleBookQuipStyle = Exclude<QuipStyle, 'concise'>;
+export const SINGLE_BOOK_QUIP_STYLES = QUIP_STYLES
+  .filter((option): option is typeof option & { id: SingleBookQuipStyle } => option.id !== 'concise')
+  .map((option) => ({ ...option, label: option.id === 'natural' ? 'Neutral' : option.label }));
 export type QuipRelevanceLevel = keyof typeof QUIP_RELEVANCE_LABELS;
 export type QuipBookRelevance = { bookId: string; level: QuipRelevanceLevel };
 export type QuipResult = { reply: string; relevance: QuipBookRelevance[] };
 export const QUIP_IDEA_LIMIT = 200;
 export const QUIP_CONCISE_LIMIT = 280;
+export const QUIP_REPLY_LIMIT = 280;
+
+export function parseSingleBookQuip(value: unknown): { reply: string } {
+  if (!isRecord(value) || Object.keys(value).length !== 1 ||
+    typeof value.reply !== 'string' || !value.reply.trim() || value.reply.trim().length > QUIP_REPLY_LIMIT) {
+    throw new Error('The AI service returned an invalid Quip. Please generate again.');
+  }
+  return { reply: value.reply.trim() };
+}
 
 export function parseQuipIdea(value: unknown): string {
   if (!isRecord(value) || Object.keys(value).length !== 1 ||

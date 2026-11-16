@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildQuipPrompt, LEGACY_QUIP_PROMPT, QUIP_IDEA_PROMPT } from './prompt.ts';
-import { QUIP_STANCES, QUIP_STYLES } from '../_shared/quip.ts';
+import { buildQuipPrompt, buildSingleBookQuipPrompt, LEGACY_QUIP_PROMPT, QUIP_IDEA_PROMPT, SINGLE_BOOK_IDEA_PROMPT } from './prompt.ts';
+import { QUIP_STANCES, QUIP_STYLES, SINGLE_BOOK_QUIP_STYLES, parseSingleBookQuip } from '../_shared/quip.ts';
 
 let handler;
 const previousDeno = globalThis.Deno;
@@ -74,6 +74,97 @@ function ideaRequest(overrides = {}) {
     mode: 'idea', trendText: undefined, includeRelevance: undefined, ...overrides,
   });
 }
+
+function singleBookRequest(overrides = {}) {
+  return request({ workflow: 'single-book', bookIds: ['a'], includeRelevance: undefined, ...overrides });
+}
+
+test('single-book defaults generate one reply without relevance and only submit the confirmed book', async (t) => {
+  const calls = setup(t, { content: () => JSON.stringify({ reply: REPLY }) });
+  const response = await handler(singleBookRequest());
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { reply: REPLY });
+  const aiCalls = calls.filter((call) => call.url.hostname === 'api.openai.com');
+  assert.equal(aiCalls.length, 1);
+  const body = JSON.parse(aiCalls[0].init.body);
+  assert.equal(body.messages[0].content, buildSingleBookQuipPrompt('neutral', 'natural'));
+  assert.deepEqual(JSON.parse(body.messages[1].content).ideas, [{
+    bookId: 'a', title: 'Book A', author: 'Author A', shortTake: BOOKS[0].note,
+  }]);
+  assert.match(body.messages[0].content, /1 to 2 sentences and at most 280 characters/);
+  assert.match(body.messages[0].content, /Do not assess book relevance/);
+  assert.equal(body.max_tokens, 240);
+  assert.equal(calls.length, 3);
+});
+
+test('single-book rejects whole-library, missing, duplicate and incompatible inputs before requests', async (t) => {
+  const calls = setup(t);
+  for (const overrides of [
+    { bookIds: undefined }, { bookIds: [] }, { bookIds: ['a', 'b'] }, { bookIds: ['a', 'a'] },
+    { style: 'concise' }, { includeRelevance: true }, { includeRelevance: false }, { workflow: 'unknown' },
+  ]) {
+    assert.equal((await handler(singleBookRequest(overrides))).status, 400, JSON.stringify(overrides));
+  }
+  assert.equal(calls.length, 0);
+});
+
+test('every current style and stance uses the 280-character limit without relevance', async (t) => {
+  let reply = 'x'.repeat(280);
+  setup(t, { content: () => JSON.stringify({ reply }) });
+  t.mock.method(console, 'error', () => {});
+  for (const stance of QUIP_STANCES) {
+    for (const style of SINGLE_BOOK_QUIP_STYLES) {
+      const response = await handler(singleBookRequest({ stance: stance.id, style: style.id }));
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { reply });
+    }
+  }
+  reply += 'x';
+  assert.equal((await handler(singleBookRequest())).status, 502);
+  assert.throws(() => parseSingleBookQuip({ reply }), /invalid Quip/);
+  assert.deepEqual(parseSingleBookQuip({ reply: 'x'.repeat(280) }), { reply: 'x'.repeat(280) });
+});
+
+test('single-book malformed, extra-field, empty and unfinished results are explicit errors', async (t) => {
+  let content = '';
+  setup(t, { content: () => content });
+  t.mock.method(console, 'error', () => {});
+  for (const value of ['not JSON', '{"reply":""}', '{"reply":"  "}', '{"reply":4}', JSON.stringify(RESULT)]) {
+    content = value;
+    assert.equal((await handler(singleBookRequest())).status, 502);
+  }
+});
+
+test('unfinished single-book responses are not accepted as complete drafts', async (t) => {
+  setup(t, { content: () => JSON.stringify({ reply: REPLY }), finishReason: 'length' });
+  t.mock.method(console, 'error', () => {});
+  assert.equal((await handler(singleBookRequest())).status, 502);
+});
+
+test('single-book seed generation sends no existing seed and uses only one confirmed book', async (t) => {
+  let idea = 'x'.repeat(200);
+  const calls = setup(t, { content: () => JSON.stringify({ idea }) });
+  t.mock.method(console, 'error', () => {});
+  const response = await handler(ideaRequest({ workflow: 'single-book', bookIds: ['a'] }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { idea });
+  const body = JSON.parse(calls.at(-1).init.body);
+  assert.equal(body.messages[0].content, SINGLE_BOOK_IDEA_PROMPT);
+  assert.match(body.messages[0].content, /single supplied Quip-enabled book/);
+  assert.doesNotMatch(body.messages[0].content, /Connect two or more books/);
+  assert.deepEqual(JSON.parse(body.messages[1].content), {
+    ideas: [{ bookId: 'a', title: 'Book A', author: 'Author A', shortTake: BOOKS[0].note }],
+  });
+  idea += 'x';
+  assert.equal((await handler(ideaRequest({ workflow: 'single-book', bookIds: ['a'] }))).status, 502);
+  assert.equal((await handler(ideaRequest({ workflow: 'single-book' }))).status, 400);
+});
+
+test('a book removed from the enabled shelf prevents single-book generation', async (t) => {
+  const calls = setup(t, { eligible: ['b'] });
+  assert.equal((await handler(singleBookRequest())).status, 403);
+  assert.equal(calls.length, 1);
+});
 
 test('book ideas use only selected eligible book summaries, without sending the existing seed or trend', async (t) => {
   const idea = 'Could doing less make room for more meaningful progress?';

@@ -1,9 +1,9 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { isRecord, parseQuipIdea, parseQuipResult, type QuipStance, type QuipStyle } from '@/supabase/functions/_shared/quip';
+import { isRecord, parseQuipIdea, parseSingleBookQuip, type QuipStance, type SingleBookQuipStyle } from '@/supabase/functions/_shared/quip';
 import { withAiTimeout } from '@/lib/aiRequest';
 
-export type QuipGenerationOptions = { stance: QuipStance; style: QuipStyle; signal?: AbortSignal };
+export type QuipGenerationOptions = { stance: QuipStance; style: SingleBookQuipStyle; signal?: AbortSignal };
 
 export async function generateTrendReply(
   trendText: string,
@@ -13,7 +13,7 @@ export async function generateTrendReply(
 ) {
   if (!supabase) throw new Error('Connect Supabase to draft a trend reply.');
   const client = supabase;
-  if (bookIds.length === 0) throw new Error('Select at least one source book to generate a Quip.');
+  if (bookIds.length !== 1) throw new Error('Select exactly one book to generate a Quip.');
 
   return withAiTimeout(async (requestSignal) => {
     const { data, error } = await client.functions.invoke('trend-interceptor', {
@@ -23,7 +23,7 @@ export async function generateTrendReply(
         bookIds,
         stance,
         style,
-        includeRelevance: true,
+        workflow: 'single-book',
       },
       signal: requestSignal,
     });
@@ -35,17 +35,17 @@ export async function generateTrendReply(
       }
       throw new Error(error.message || 'Could not draft a trend reply.');
     }
-    return parseQuipResult(data, bookIds, style);
+    return parseSingleBookQuip(data);
   }, 'Reply generation timed out. Check your connection and try again.', signal);
 }
 
 export async function generateQuipIdea(bookIds: string[], signal?: AbortSignal): Promise<string> {
   if (!supabase) throw new Error('Connect Supabase to suggest a Quip idea.');
   const client = supabase;
-  if (bookIds.length === 0) throw new Error('Select at least one Quip-enabled book to suggest an idea.');
+  if (bookIds.length !== 1) throw new Error('Select exactly one book to generate a Quip seed.');
   return withAiTimeout(async (requestSignal) => {
     const { data, error } = await client.functions.invoke('trend-interceptor', {
-      body: { mode: 'idea', bookIds },
+      body: { mode: 'idea', workflow: 'single-book', bookIds },
       signal: requestSignal,
     });
     if (error) {

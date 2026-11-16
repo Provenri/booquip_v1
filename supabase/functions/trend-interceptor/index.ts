@@ -1,7 +1,7 @@
 // @ts-ignore Deno requires explicit TypeScript extensions.
-import { isQuipStance, isQuipStyle, isRecord, parseQuipIdea, parseQuipResult } from '../_shared/quip.ts';
+import { isQuipStance, isQuipStyle, isRecord, parseQuipIdea, parseQuipResult, parseSingleBookQuip } from '../_shared/quip.ts';
 // @ts-ignore Deno requires explicit TypeScript extensions.
-import { buildQuipPrompt, LEGACY_QUIP_PROMPT, QUIP_IDEA_PROMPT } from './prompt.ts';
+import { buildQuipPrompt, buildSingleBookQuipPrompt, LEGACY_QUIP_PROMPT, QUIP_IDEA_PROMPT, SINGLE_BOOK_IDEA_PROMPT } from './prompt.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,6 +41,10 @@ edgeRuntime.serve(async (request: Request) => {
     return jsonResponse(400, { error: 'Invalid request body.' });
   }
   if (!isRecord(payload)) return jsonResponse(400, { error: 'Invalid request body.' });
+  if (payload.workflow !== undefined && payload.workflow !== 'single-book') {
+    return jsonResponse(400, { error: 'The Quip workflow is invalid.' });
+  }
+  const singleBook = payload.workflow === 'single-book';
   if (payload.mode !== undefined && payload.mode !== 'idea') {
     return jsonResponse(400, { error: 'The Quip operation is invalid.' });
   }
@@ -62,6 +66,9 @@ edgeRuntime.serve(async (request: Request) => {
     return jsonResponse(400, { error: 'The selected books are invalid.' });
   }
   const requestedBookIds = Array.isArray(payload.bookIds) ? payload.bookIds.filter((id): id is string => typeof id === 'string') : undefined;
+  if (singleBook && (requestedBookIds?.length !== 1 || payload.includeRelevance !== undefined || payload.style === 'concise')) {
+    return jsonResponse(400, { error: 'Select exactly one book. The single-book workflow does not accept relevance or Concise style.' });
+  }
   if (requestedBookIds && new Set(requestedBookIds).size !== requestedBookIds.length) {
     return jsonResponse(400, { error: 'The selected books contain duplicates.' });
   }
@@ -78,7 +85,7 @@ edgeRuntime.serve(async (request: Request) => {
   }
   const stance = isQuipStance(payload.stance) ? payload.stance : 'neutral';
   const style = isQuipStyle(payload.style) ? payload.style : 'natural';
-  if (!includeRelevance && (stance !== 'neutral' || style !== 'natural')) {
+  if (!singleBook && !includeRelevance && (stance !== 'neutral' || style !== 'natural')) {
     return jsonResponse(400, { error: 'Stance and style require the updated Quip response format.' });
   }
 
@@ -157,17 +164,19 @@ edgeRuntime.serve(async (request: Request) => {
       body: JSON.stringify({
         model: edgeRuntime.env.get('OPENAI_TREND_INTERCEPTOR_MODEL') ?? 'gpt-4o',
         temperature: 0.7,
-        max_tokens: isIdea ? 160 : includeRelevance ? 300 + books.length * 65 : 240,
-        ...(includeRelevance || isIdea ? { response_format: { type: 'json_object' } } : {}),
+        max_tokens: isIdea ? 160 : singleBook ? 240 : includeRelevance ? 300 + books.length * 65 : 240,
+        ...(singleBook || includeRelevance || isIdea ? { response_format: { type: 'json_object' } } : {}),
         messages: [
           {
             role: 'system',
-            content: isIdea ? QUIP_IDEA_PROMPT : includeRelevance ? buildQuipPrompt(stance, style) : LEGACY_QUIP_PROMPT,
+            content: isIdea ? singleBook ? SINGLE_BOOK_IDEA_PROMPT : QUIP_IDEA_PROMPT
+              : singleBook && style !== 'concise' ? buildSingleBookQuipPrompt(stance, style)
+                : includeRelevance ? buildQuipPrompt(stance, style) : LEGACY_QUIP_PROMPT,
           },
           {
             role: 'user',
             content: JSON.stringify({
-              ideas: includeRelevance || isIdea
+              ideas: singleBook || includeRelevance || isIdea
                 ? books.map((book) => ({ bookId: book.id, title: book.title, author: book.author, shortTake: book.note }))
                 : books.map((book) => book.note),
               ...(!isIdea ? {
@@ -179,7 +188,7 @@ edgeRuntime.serve(async (request: Request) => {
           },
         ],
       }),
-      signal: AbortSignal.timeout(includeRelevance || isIdea ? 45000 : 20000),
+      signal: AbortSignal.timeout(singleBook || includeRelevance || isIdea ? 45000 : 20000),
     });
 
     if (!openAiResponse.ok) return jsonResponse(502, { error: isIdea ? 'The AI service could not suggest an idea. Try again shortly.' : 'The AI service could not draft a reply. Try again shortly.' });
@@ -200,6 +209,15 @@ edgeRuntime.serve(async (request: Request) => {
       } catch (error) {
         console.error('Invalid Quip idea response:', error);
         return jsonResponse(502, { error: 'The AI service returned an invalid or unfinished idea. Please try again.' });
+      }
+    }
+    if (singleBook) {
+      try {
+        if (result.choices?.[0]?.finish_reason !== 'stop') throw new Error('Incomplete Quip response.');
+        return jsonResponse(200, parseSingleBookQuip(JSON.parse(reply)));
+      } catch (error) {
+        console.error('Invalid single-book Quip response:', error);
+        return jsonResponse(502, { error: 'The AI service returned an invalid or unfinished Quip. Please generate again.' });
       }
     }
     if (includeRelevance) {
