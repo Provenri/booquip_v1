@@ -27,7 +27,12 @@ type QuipWorkspaceProps = {
   onGenerate: (seed: string, trendTopicId: string | null, bookIds: string[], options: QuipGenerationOptions) => Promise<{ reply: string }>;
 };
 
-type ReplySource = { kind: 'custom' | 'ready-made'; bookTitle: string; topic?: string };
+type ReplySource = {
+  kind: 'custom' | 'ready-made';
+  bookTitle: string;
+  stance?: QuipStance;
+  style?: SingleBookQuipStyle;
+};
 
 export default function QuipWorkspace({
   sourceBooks, readBookIds, selectedBookId, onSelectBook, isSaving, refreshing, onRefresh, refreshError, onGenerate,
@@ -57,6 +62,7 @@ export default function QuipWorkspace({
   const cache = useRef(new Map<string, StoredQuipCacheVariant[]>());
   const selectedBook = sourceBooks.find((book) => book.id === selectedBookId);
   const canCraft = Boolean(selectedBook && readBookIds.includes(selectedBook.id));
+  const selectedVariant = variants.find((variant) => variant.stance === stance && variant.style === style);
   const busy = generating || isSaving || refreshing;
   const inputs: QuipDraftInputs = { seed: seed.trim(), trendTopicId: null, bookIds: selectedBook ? [selectedBook.id] : [], stance, style };
   const latest = useRef({ inputs, canCraft });
@@ -166,7 +172,14 @@ export default function QuipWorkspace({
   const useVariant = (variant: StoredQuipCacheVariant) => {
     if (!selectedBook || variant.book_id !== selectedBook.id) return;
     setReply(variant.reply);
-    setReplySource({ kind: 'ready-made', bookTitle: selectedBook.title, topic: variant.topic });
+    setReplySource({
+      kind: 'ready-made',
+      bookTitle: selectedBook.title,
+      stance: variant.stance,
+      style: variant.style,
+    });
+    setStance(variant.stance);
+    setStyle(variant.style);
     setGeneratedInputs(null);
     setPendingVariant(null);
     setCopied(false);
@@ -192,14 +205,25 @@ export default function QuipWorkspace({
         <Text style={styles.eyebrow}>QUIP</Text>
         <Text style={styles.title}>A book. A new perspective.</Text>
         {refreshError ? <Text accessibilityRole="alert" style={styles.error}>{refreshError}</Text> : null}
-        <View style={styles.card}>
-          <Text style={styles.label}>YOUR BOOK</Text>
-          <Text style={styles.bookTitle}>{selectedBook?.title ?? 'Choose a book to start'}</Text>
-          {selectedBook ? <Text style={styles.hint}>{selectedBook.author} · {canCraft ? 'Finished' : 'To read'}</Text> : null}
+        <View style={styles.bookCard}>
+          <View style={styles.bookCardHeading}>
+            <View style={styles.bookCardCopy}>
+              <Text style={styles.label}>YOUR BOOK</Text>
+              <Text style={styles.bookTitle}>{selectedBook?.title ?? 'Choose a book to start'}</Text>
+              {selectedBook ? <Text style={styles.hint}>{selectedBook.author} · {canCraft ? 'Finished' : 'To read'}</Text> : null}
+            </View>
           <Pressable accessibilityRole="button" disabled={busy} onPress={() => setPickerVisible(true)} style={styles.secondaryButton}>
-            <MessageCircle color={colors.brandDeep} size={16} />
-            <Text style={styles.buttonText}>{selectedBook ? 'Change book' : 'Choose a book'}</Text>
+              <MessageCircle color={colors.brandDeep} size={15} />
+              <Text style={styles.buttonText}>{selectedBook ? 'Change' : 'Choose'}</Text>
           </Pressable>
+          </View>
+          {selectedBook && path === 'ready-made' && variants[0] ? (
+            <View style={styles.bookTopic}>
+              <Text style={styles.topicEyebrow}>A THEME FROM THE SUMMARY</Text>
+              <Text style={styles.topicTitle}>{variants[0].topic}</Text>
+              <Text style={styles.topicReason}>{variants[0].topic_reason}</Text>
+            </View>
+          ) : null}
         </View>
         {pendingBookId ? (
           <View style={styles.card}>
@@ -213,12 +237,12 @@ export default function QuipWorkspace({
         {selectedBook ? (
           <>
             <View style={styles.row}>
-              <Pressable accessibilityRole="button" accessibilityState={{ selected: path === 'ready-made' }} disabled={busy} onPress={() => setPath('ready-made')}
+              <Pressable accessibilityRole="button" accessibilityState={{ selected: path === 'ready-made' }} disabled={busy} onPress={() => { setPendingVariant(null); setPath('ready-made'); }}
                 style={[styles.pathButton, path === 'ready-made' && styles.selected]}>
                 <Text style={styles.buttonText}>Explore ready-made Quips</Text>
               </Pressable>
               {canCraft ? (
-                <Pressable accessibilityRole="button" accessibilityState={{ selected: path === 'craft' }} disabled={busy} onPress={() => setPath('craft')}
+                <Pressable accessibilityRole="button" accessibilityState={{ selected: path === 'craft' }} disabled={busy} onPress={() => { setPendingVariant(null); setPath('craft'); }}
                   style={[styles.pathButton, path === 'craft' && styles.selected]}>
                   <Text style={styles.buttonText}>Craft a Quip</Text>
                 </Pressable>
@@ -231,29 +255,70 @@ export default function QuipWorkspace({
         {selectedBook && path === 'ready-made' ? (
           <View style={styles.section}>
             <Text style={styles.heading}>Ready-made Quips</Text>
-            <Text style={styles.hint}>AI-generated from the book summary, not tailored to your idea. Choose a draft to edit and copy.</Text>
+            <Text style={styles.hint}>Choose a stance and style to preview a saved draft. It is based on the summary, not a custom idea.</Text>
             {loading ? <ActivityIndicator accessibilityLabel="Loading ready-made Quips" color={colors.brand} /> : null}
             {cacheError ? <View><Text accessibilityRole="alert" style={styles.error}>{cacheError}</Text>
               <Pressable accessibilityRole="button" onPress={() => setRetry((value) => value + 1)} style={styles.secondaryButton}><Text style={styles.buttonText}>Try again</Text></Pressable>
             </View> : null}
             {!loading && !cacheError && variants.length === 0 ? <Text style={styles.body}>Ready-made Quips are not available for this book yet.</Text> : null}
-            {variants[0] ? <View style={styles.card}><Text style={styles.label}>BOOK TOPIC</Text><Text style={styles.heading}>{variants[0].topic}</Text><Text style={styles.hint}>{variants[0].topic_reason}</Text></View> : null}
-            {variants.map((variant, index) => (
-              <View key={`${variant.stance}:${variant.style}`} style={styles.card}>
-                <Text style={styles.label}>QUIP {index + 1}</Text>
-                <Text style={styles.body}>{variant.reply}</Text>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Use Quip ${index + 1}`} onPress={() => reply && reply !== variant.reply ? setPendingVariant(variant) : useVariant(variant)} style={styles.secondaryButton}>
-                  <Text style={styles.buttonText}>Use this Quip</Text>
-                </Pressable>
-                {pendingVariant === variant ? <View>
-                  <Text style={styles.hint}>Replace your current draft? Any edits to that draft will be lost.</Text>
-                  <View style={styles.row}>
-                    <Pressable accessibilityRole="button" onPress={() => useVariant(variant)} style={styles.secondaryButton}><Text style={styles.buttonText}>Replace draft</Text></Pressable>
-                    <Pressable accessibilityRole="button" onPress={() => setPendingVariant(null)} style={styles.secondaryButton}><Text style={styles.buttonText}>Cancel</Text></Pressable>
+            {variants.length > 0 ? (
+              <>
+                <View style={styles.preferenceGroup}>
+                  <Text style={styles.preferenceLabel}>STANCE</Text>
+                  <View accessibilityRole="radiogroup" accessibilityLabel="Ready-made Quip stance" style={styles.row}>
+                    {QUIP_STANCES.map((option) => (
+                      <Pressable key={option.id} accessibilityRole="radio" accessibilityLabel={`${option.label} stance`}
+                        accessibilityState={{ checked: stance === option.id }}
+                        onPress={() => { setPendingVariant(null); setStance(option.id); }}
+                        style={[styles.option, styles.readyMadeOption, stance === option.id && styles.selected]}>
+                        <Text style={[styles.buttonText, stance === option.id && styles.selectedText]}>{option.label}</Text>
+                      </Pressable>
+                    ))}
                   </View>
-                </View> : null}
-              </View>
-            ))}
+                </View>
+                <View style={styles.preferenceGroup}>
+                  <Text style={styles.preferenceLabel}>STYLE</Text>
+                  <View accessibilityRole="radiogroup" accessibilityLabel="Ready-made Quip style" style={styles.row}>
+                    {SINGLE_BOOK_QUIP_STYLES.map((option) => (
+                      <Pressable key={option.id} accessibilityRole="radio" accessibilityLabel={`${option.label} style`}
+                        accessibilityState={{ checked: style === option.id }}
+                        onPress={() => { setPendingVariant(null); setStyle(option.id); }}
+                        style={[styles.option, styles.readyMadeOption, style === option.id && styles.selected]}>
+                        <Text style={[styles.buttonText, style === option.id && styles.selectedText]}>{option.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+                {selectedVariant ? (
+                  <View style={styles.variantPreview}>
+                    <View style={styles.variantBadges}>
+                      <Text style={styles.variantBadge}>{QUIP_STANCES.find((option) => option.id === selectedVariant.stance)?.label} stance</Text>
+                      <Text style={styles.variantBadge}>{SINGLE_BOOK_QUIP_STYLES.find((option) => option.id === selectedVariant.style)?.label} style</Text>
+                    </View>
+                    <Text style={styles.variantReply}>{selectedVariant.reply}</Text>
+                    <Pressable accessibilityRole="button" onPress={() => {
+                      if (reply && reply !== selectedVariant.reply) setPendingVariant(selectedVariant);
+                      else useVariant(selectedVariant);
+                    }} style={styles.useButton}>
+                      <Text style={styles.useButtonText}>{replySource?.kind === 'ready-made' && reply === selectedVariant.reply ? 'Selected for editing' : 'Edit this Quip'}</Text>
+                    </Pressable>
+                  </View>
+                ) : <Text style={styles.hint}>This stance and style combination is not available yet.</Text>}
+                {pendingVariant ? (
+                  <View accessibilityLiveRegion="polite" style={styles.replaceNotice}>
+                    <Text style={styles.hint}>Replace your current draft? Any edits will be lost.</Text>
+                    <View style={styles.row}>
+                      <Pressable accessibilityRole="button" onPress={() => useVariant(pendingVariant)} style={styles.secondaryButton}>
+                        <Text style={styles.buttonText}>Replace draft</Text>
+                      </Pressable>
+                      <Pressable accessibilityRole="button" onPress={() => setPendingVariant(null)} style={styles.secondaryButton}>
+                        <Text style={styles.buttonText}>Keep editing</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
+              </>
+            ) : null}
           </View>
         ) : null}
 
@@ -293,7 +358,12 @@ export default function QuipWorkspace({
         {reply && replySource ? (
           <View style={styles.card}>
             <Text style={styles.heading}>{replySource.kind === 'ready-made' ? 'Your ready-made Quip' : 'Your crafted Quip'}</Text>
-            <Text style={styles.hint}>From {replySource.bookTitle}{replySource.topic ? ` · ${replySource.topic}. Not tailored to your idea.` : ''}</Text>
+            <Text style={styles.hint}>
+              From {replySource.bookTitle}
+              {replySource.kind === 'ready-made' && replySource.stance && replySource.style
+                ? ` · ${QUIP_STANCES.find((option) => option.id === replySource.stance)?.label} stance · ${SINGLE_BOOK_QUIP_STYLES.find((option) => option.id === replySource.style)?.label} style · Based on the catalog summary`
+                : ''}
+            </Text>
             {replySource.kind === 'custom' && !quipInputsMatch(generatedInputs, inputs) ? <Text style={styles.hint}>Inputs changed. Generate again to update this draft.</Text> : null}
             <TextInput accessibilityLabel="Editable quip" value={reply} onChangeText={(text) => { setReply(text); setCopied(false); }} editable={!generating} multiline
               maxLength={QUIP_REPLY_LIMIT} style={styles.input} textAlignVertical="top" />
@@ -322,7 +392,14 @@ const styles = StyleSheet.create({
   title: pageLayout.title,
   section: { marginTop: spacing.md },
   card: { padding: spacing.md, marginVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, backgroundColor: colors.surface },
-  bookTitle: { color: colors.inkStrong, fontSize: type.heading, fontFamily: 'Newsreader_700Bold', marginTop: spacing.xs },
+  bookCard: { padding: spacing.md, marginVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radii.lg, backgroundColor: colors.surface },
+  bookCardHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  bookCardCopy: { flex: 1, minWidth: 0 },
+  bookTitle: { color: colors.inkStrong, fontSize: type.heading, lineHeight: 26, fontFamily: 'Newsreader_700Bold', marginTop: spacing.xs },
+  bookTopic: { padding: spacing.sm, marginTop: spacing.sm, borderRadius: radii.md, backgroundColor: colors.brandPale },
+  topicEyebrow: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '800', letterSpacing: 0.6 },
+  topicTitle: { color: colors.inkStrong, fontSize: type.body, lineHeight: 20, fontWeight: '700', marginTop: spacing.xxs },
+  topicReason: { color: colors.secondary, fontSize: type.caption, lineHeight: 17, marginTop: spacing.xxs },
   heading: { color: colors.inkStrong, fontSize: type.subtitle, fontWeight: '700', marginVertical: spacing.xs },
   label: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '700', marginTop: spacing.xs },
   body: { color: colors.body, fontSize: type.body, lineHeight: 22 },
@@ -330,9 +407,20 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginVertical: spacing.xs },
   pathButton: { flexGrow: 1, minHeight: 48, padding: spacing.sm, alignItems: 'center', justifyContent: 'center', borderRadius: radii.md, borderWidth: 1, borderColor: colors.borderStrong },
   selected: { backgroundColor: colors.brandPale, borderColor: colors.brand },
+  selectedText: { color: colors.brandDeep },
   secondaryButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, alignSelf: 'flex-start' },
   buttonText: { color: colors.brandDeep, fontSize: type.body, fontWeight: '600' },
   option: { minHeight: 44, paddingHorizontal: spacing.md, justifyContent: 'center', borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.pill },
+  preferenceGroup: { marginTop: spacing.xs },
+  preferenceLabel: { color: colors.secondary, fontSize: type.caption, fontWeight: '800', letterSpacing: 0.7, marginBottom: spacing.xxs },
+  readyMadeOption: { flexGrow: 1, alignItems: 'center', minWidth: 80 },
+  variantPreview: { padding: spacing.md, marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radii.lg, backgroundColor: colors.surface },
+  variantBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  variantBadge: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '700', paddingHorizontal: spacing.xs, paddingVertical: spacing.xxs, borderRadius: radii.pill, backgroundColor: colors.brandPale },
+  variantReply: { color: colors.body, fontSize: type.body, lineHeight: 22, marginTop: spacing.sm },
+  useButton: { minHeight: 42, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: spacing.sm, marginTop: spacing.xs, borderRadius: radii.pill, backgroundColor: colors.brandPale },
+  useButtonText: { color: colors.brandDeep, fontSize: type.footnote, fontWeight: '700' },
+  replaceNotice: { padding: spacing.sm, marginTop: spacing.sm, borderRadius: radii.md, backgroundColor: colors.surfaceWarm },
   input: { minHeight: 120, padding: spacing.sm, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.md, backgroundColor: colors.surfaceWarm, color: colors.ink, fontSize: type.body, lineHeight: 22 },
   checkbox: { width: 24, height: 24, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
   consentText: { flexShrink: 1, color: colors.body, fontSize: type.footnote },
