@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { Check, Copy, MessageCircle, Sparkles } from 'lucide-react-native';
+import { BookOpen, Check, Copy, MessageCircle, Sparkles } from 'lucide-react-native';
+import { Image } from 'expo-image';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Pressable from '@/components/MotionPressable';
 import QuipBookPicker from '@/components/QuipBookPicker';
@@ -29,9 +30,8 @@ type QuipWorkspaceProps = {
 
 type ReplySource = {
   kind: 'custom' | 'ready-made';
+  bookId: string;
   bookTitle: string;
-  stance?: QuipStance;
-  style?: SingleBookQuipStyle;
 };
 
 export default function QuipWorkspace({
@@ -45,7 +45,7 @@ export default function QuipWorkspace({
   const [style, setStyle] = useState<SingleBookQuipStyle>('natural');
   const [consent, setConsent] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [variants, setVariants] = useState<StoredQuipCacheVariant[]>([]);
+  const [variantData, setVariantData] = useState<{ cacheKey: string; variants: StoredQuipCacheVariant[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [cacheError, setCacheError] = useState('');
   const [retry, setRetry] = useState(0);
@@ -55,6 +55,8 @@ export default function QuipWorkspace({
   const [pendingVariant, setPendingVariant] = useState<StoredQuipCacheVariant | null>(null);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copiedReadyMade, setCopiedReadyMade] = useState(false);
+  const [failedCoverUri, setFailedCoverUri] = useState<string | null>(null);
   const generationController = useRef<AbortController | null>(null);
   const scroll = useRef<ScrollView>(null);
   const shouldScrollToReply = useRef(false);
@@ -62,13 +64,18 @@ export default function QuipWorkspace({
   const cache = useRef(new Map<string, StoredQuipCacheVariant[]>());
   const selectedBook = sourceBooks.find((book) => book.id === selectedBookId);
   const canCraft = Boolean(selectedBook && readBookIds.includes(selectedBook.id));
+  const cacheKey = selectedBook ? JSON.stringify([selectedBook.id, selectedBook.title, selectedBook.author, selectedBook.note]) : '';
+  const variants = variantData?.cacheKey === cacheKey ? variantData.variants : [];
   const selectedVariant = variants.find((variant) => variant.stance === stance && variant.style === style);
   const busy = generating || isSaving || refreshing;
   const inputs: QuipDraftInputs = { seed: seed.trim(), trendTopicId: null, bookIds: selectedBook ? [selectedBook.id] : [], stance, style };
   const latest = useRef({ inputs, canCraft });
   latest.current = { inputs, canCraft };
-  const cacheKey = selectedBook ? JSON.stringify([selectedBook.id, selectedBook.title, selectedBook.author, selectedBook.note]) : '';
+  const coverUri = selectedBook?.coverUrl ?? (selectedBook?.isbn ? `https://covers.openlibrary.org/b/isbn/${selectedBook.isbn}-M.jpg` : null);
   const refreshWasActive = useRef(false);
+  const replyBookChanged = Boolean(replySource && replySource.bookId !== selectedBook?.id);
+  const replyInputsChanged = replySource?.kind === 'custom' && !quipInputsMatch(generatedInputs, inputs);
+  const replyIsStale = replyBookChanged || replyInputsChanged;
 
   useEffect(() => () => generationController.current?.abort(), []);
 
@@ -103,14 +110,14 @@ export default function QuipWorkspace({
   }, [refreshing]);
 
   useEffect(() => {
-    setVariants([]);
+    setVariantData(null);
     setCacheError('');
     setPendingVariant(null);
     setLoading(false);
-    if (path !== 'ready-made' || !selectedBookId || !cacheKey || refreshing) return;
+    if (!selectedBookId || !cacheKey || refreshing) return;
     const saved = cache.current.get(cacheKey);
     if (saved) {
-      setVariants(saved);
+      setVariantData({ cacheKey, variants: saved });
       return;
     }
     const controller = new AbortController();
@@ -118,14 +125,14 @@ export default function QuipWorkspace({
     void loadQuipBookDrafts(selectedBookId, controller.signal).then((rows) => {
       if (controller.signal.aborted) return;
       cache.current.set(cacheKey, rows);
-      setVariants(rows);
+      setVariantData({ cacheKey, variants: rows });
     }).catch((failure: unknown) => {
       if (!controller.signal.aborted) setCacheError(failure instanceof Error ? failure.message : 'Could not load ready-made Quips.');
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [path, selectedBookId, cacheKey, retry, refreshing]);
+  }, [selectedBookId, cacheKey, retry, refreshing]);
 
   const selectBook = (bookId: string) => {
     onSelectBook(bookId);
@@ -134,6 +141,8 @@ export default function QuipWorkspace({
     setPendingVariant(null);
     setPickerVisible(false);
     setError('');
+    setCopied(false);
+    setCopiedReadyMade(false);
   };
 
   const generate = async () => {
@@ -145,6 +154,7 @@ export default function QuipWorkspace({
     setGenerating(true);
     setError('');
     setCopied(false);
+    setCopiedReadyMade(false);
     try {
       const result = await onGenerate(requestedInputs.seed, null, [...requestedInputs.bookIds], { stance, style, signal: controller.signal });
       if (controller.signal.aborted) return;
@@ -153,7 +163,7 @@ export default function QuipWorkspace({
         return;
       }
       setReply(result.reply);
-      setReplySource({ kind: 'custom', bookTitle: title });
+      setReplySource({ kind: 'custom', bookId: selectedBook.id, bookTitle: title });
       setGeneratedInputs(requestedInputs);
       shouldScrollToReply.current = true;
       setReplyRevision((revision) => revision + 1);
@@ -174,24 +184,30 @@ export default function QuipWorkspace({
     setReply(variant.reply);
     setReplySource({
       kind: 'ready-made',
+      bookId: selectedBook.id,
       bookTitle: selectedBook.title,
-      stance: variant.stance,
-      style: variant.style,
     });
     setStance(variant.stance);
     setStyle(variant.style);
     setGeneratedInputs(null);
     setPendingVariant(null);
     setCopied(false);
+    setCopiedReadyMade(false);
     setError('');
     shouldScrollToReply.current = true;
     setReplyRevision((revision) => revision + 1);
   };
 
-  const copy = async () => {
+  const copyText = async (text: string, source: 'draft' | 'ready-made') => {
     try {
-      await Clipboard.setStringAsync(reply);
-      setCopied(true);
+      await Clipboard.setStringAsync(text);
+      if (source === 'draft') {
+        setCopied(true);
+        setCopiedReadyMade(false);
+      } else {
+        setCopied(false);
+        setCopiedReadyMade(true);
+      }
       setError('');
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Could not copy this Quip.');
@@ -207,19 +223,42 @@ export default function QuipWorkspace({
         {refreshError ? <Text accessibilityRole="alert" style={styles.error}>{refreshError}</Text> : null}
         <View style={styles.bookCard}>
           <View style={styles.bookCardHeading}>
+            {selectedBook ? (
+              <View style={[styles.bookCover, { backgroundColor: selectedBook.color }]}>
+                <BookOpen color={colors.white} size={19} />
+                {coverUri && failedCoverUri !== coverUri ? (
+                  <Image accessibilityLabel={`Cover of ${selectedBook.title}`} cachePolicy="memory-disk"
+                    recyclingKey={coverUri} onError={() => setFailedCoverUri(coverUri)}
+                    contentFit="cover" source={{ uri: coverUri }} style={styles.bookCoverImage} />
+                ) : null}
+              </View>
+            ) : null}
             <View style={styles.bookCardCopy}>
               <Text style={styles.label}>YOUR BOOK</Text>
               <Text style={styles.bookTitle}>{selectedBook?.title ?? 'Choose a book to start'}</Text>
               {selectedBook ? <Text style={styles.hint}>{selectedBook.author} · {canCraft ? 'Finished' : 'To read'}</Text> : null}
             </View>
-          <Pressable accessibilityRole="button" disabled={busy} onPress={() => setPickerVisible(true)} style={styles.secondaryButton}>
+            <Pressable accessibilityRole="button" disabled={busy} onPress={() => setPickerVisible(true)} style={styles.secondaryButton}>
               <MessageCircle color={colors.brandDeep} size={15} />
               <Text style={styles.buttonText}>{selectedBook ? 'Change' : 'Choose'}</Text>
-          </Pressable>
+            </Pressable>
           </View>
-          {selectedBook && path === 'ready-made' && variants[0] ? (
+          {selectedBook && loading ? (
+            <View style={styles.bookTopicLoading}>
+              <ActivityIndicator accessibilityLabel="Loading book theme" color={colors.brand} size="small" />
+              <Text style={styles.hint}>Loading book theme…</Text>
+            </View>
+          ) : null}
+          {selectedBook && cacheError ? (
+            <View style={styles.cacheError}>
+              <Text accessibilityRole="alert" style={styles.error}>{cacheError}</Text>
+              <Pressable accessibilityRole="button" onPress={() => setRetry((value) => value + 1)} style={styles.secondaryButton}>
+                <Text style={styles.buttonText}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {selectedBook && variants[0] ? (
             <View style={styles.bookTopic}>
-              <Text style={styles.topicEyebrow}>A THEME FROM THE SUMMARY</Text>
               <Text style={styles.topicTitle}>{variants[0].topic}</Text>
               <Text style={styles.topicReason}>{variants[0].topic_reason}</Text>
             </View>
@@ -227,7 +266,10 @@ export default function QuipWorkspace({
         </View>
         {pendingBookId ? (
           <View style={styles.card}>
-            <Text style={styles.body}>Change books? Your idea and current draft will be kept. Crafting is available only for Finished books.</Text>
+            <Text style={styles.body}>
+              Change books? Your idea and current draft will be kept, but the draft stays tied to {selectedBook?.title ?? 'the previous book'} until you generate or select a Quip for the new book.
+              {' '}Crafting is available only for Finished books.
+            </Text>
             <View style={styles.row}>
               <Pressable accessibilityRole="button" onPress={() => selectBook(pendingBookId)} style={styles.secondaryButton}><Text style={styles.buttonText}>Change book</Text></Pressable>
               <Pressable accessibilityRole="button" onPress={() => setPendingBookId(null)} style={styles.secondaryButton}><Text style={styles.buttonText}>Cancel</Text></Pressable>
@@ -256,10 +298,6 @@ export default function QuipWorkspace({
           <View style={styles.section}>
             <Text style={styles.heading}>Ready-made Quips</Text>
             <Text style={styles.hint}>Choose a stance and style to preview a saved draft. It is based on the summary, not a custom idea.</Text>
-            {loading ? <ActivityIndicator accessibilityLabel="Loading ready-made Quips" color={colors.brand} /> : null}
-            {cacheError ? <View><Text accessibilityRole="alert" style={styles.error}>{cacheError}</Text>
-              <Pressable accessibilityRole="button" onPress={() => setRetry((value) => value + 1)} style={styles.secondaryButton}><Text style={styles.buttonText}>Try again</Text></Pressable>
-            </View> : null}
             {!loading && !cacheError && variants.length === 0 ? <Text style={styles.body}>Ready-made Quips are not available for this book yet.</Text> : null}
             {variants.length > 0 ? (
               <>
@@ -269,7 +307,7 @@ export default function QuipWorkspace({
                     {QUIP_STANCES.map((option) => (
                       <Pressable key={option.id} accessibilityRole="radio" accessibilityLabel={`${option.label} stance`}
                         accessibilityState={{ checked: stance === option.id }}
-                        onPress={() => { setPendingVariant(null); setStance(option.id); }}
+                        onPress={() => { setPendingVariant(null); setCopiedReadyMade(false); setStance(option.id); }}
                         style={[styles.option, styles.readyMadeOption, stance === option.id && styles.selected]}>
                         <Text style={[styles.buttonText, stance === option.id && styles.selectedText]}>{option.label}</Text>
                       </Pressable>
@@ -282,7 +320,7 @@ export default function QuipWorkspace({
                     {SINGLE_BOOK_QUIP_STYLES.map((option) => (
                       <Pressable key={option.id} accessibilityRole="radio" accessibilityLabel={`${option.label} style`}
                         accessibilityState={{ checked: style === option.id }}
-                        onPress={() => { setPendingVariant(null); setStyle(option.id); }}
+                        onPress={() => { setPendingVariant(null); setCopiedReadyMade(false); setStyle(option.id); }}
                         style={[styles.option, styles.readyMadeOption, style === option.id && styles.selected]}>
                         <Text style={[styles.buttonText, style === option.id && styles.selectedText]}>{option.label}</Text>
                       </Pressable>
@@ -291,17 +329,19 @@ export default function QuipWorkspace({
                 </View>
                 {selectedVariant ? (
                   <View style={styles.variantPreview}>
-                    <View style={styles.variantBadges}>
-                      <Text style={styles.variantBadge}>{QUIP_STANCES.find((option) => option.id === selectedVariant.stance)?.label} stance</Text>
-                      <Text style={styles.variantBadge}>{SINGLE_BOOK_QUIP_STYLES.find((option) => option.id === selectedVariant.style)?.label} style</Text>
-                    </View>
                     <Text style={styles.variantReply}>{selectedVariant.reply}</Text>
-                    <Pressable accessibilityRole="button" onPress={() => {
-                      if (reply && reply !== selectedVariant.reply) setPendingVariant(selectedVariant);
-                      else useVariant(selectedVariant);
-                    }} style={styles.useButton}>
-                      <Text style={styles.useButtonText}>{replySource?.kind === 'ready-made' && reply === selectedVariant.reply ? 'Selected for editing' : 'Edit this Quip'}</Text>
-                    </Pressable>
+                    <View style={styles.row}>
+                      <Pressable accessibilityRole="button" onPress={() => {
+                        if (reply && reply !== selectedVariant.reply) setPendingVariant(selectedVariant);
+                        else useVariant(selectedVariant);
+                      }} style={styles.useButton}>
+                        <Text style={styles.useButtonText}>{replySource?.kind === 'ready-made' && reply === selectedVariant.reply ? 'Selected for editing' : 'Edit this Quip'}</Text>
+                      </Pressable>
+                      <Pressable accessibilityRole="button" onPress={() => void copyText(selectedVariant.reply, 'ready-made')} style={styles.useButton}>
+                        {copiedReadyMade ? <Check color={colors.brand} size={15} /> : <Copy color={colors.brand} size={15} />}
+                        <Text style={styles.useButtonText}>{copiedReadyMade ? 'Copied as-is' : 'Copy as-is'}</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 ) : <Text style={styles.hint}>This stance and style combination is not available yet.</Text>}
                 {pendingVariant ? (
@@ -357,18 +397,25 @@ export default function QuipWorkspace({
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {reply && replySource ? (
           <View style={styles.card}>
-            <Text style={styles.heading}>{replySource.kind === 'ready-made' ? 'Your ready-made Quip' : 'Your crafted Quip'}</Text>
+            <Text style={styles.heading}>
+              {replyIsStale ? 'Previous Quip draft' : replySource.kind === 'ready-made' ? 'Your ready-made Quip' : 'Your crafted Quip'}
+            </Text>
             <Text style={styles.hint}>
               From {replySource.bookTitle}
-              {replySource.kind === 'ready-made' && replySource.stance && replySource.style
-                ? ` · ${QUIP_STANCES.find((option) => option.id === replySource.stance)?.label} stance · ${SINGLE_BOOK_QUIP_STYLES.find((option) => option.id === replySource.style)?.label} style · Based on the catalog summary`
-                : ''}
+              {replySource.kind === 'ready-made' ? ' · Based on the catalog summary' : ''}
             </Text>
-            {replySource.kind === 'custom' && !quipInputsMatch(generatedInputs, inputs) ? <Text style={styles.hint}>Inputs changed. Generate again to update this draft.</Text> : null}
-            <TextInput accessibilityLabel="Editable quip" value={reply} onChangeText={(text) => { setReply(text); setCopied(false); }} editable={!generating} multiline
+            {replyBookChanged ? (
+              <Text style={styles.staleNotice}>
+                This draft is still from {replySource.bookTitle}. It has been kept, but the selected book is now {selectedBook?.title ?? 'not selected'}.
+                {selectedBook ? (replySource.kind === 'custom' ? ' Generate again to use the selected book.' : ' Explore ready-made Quips to choose a draft for this book.') : ' Choose a book to continue.'}
+              </Text>
+            ) : replyInputsChanged ? (
+              <Text style={styles.staleNotice}>Your idea, stance, or style changed since this draft was generated. Generate again to update it.</Text>
+            ) : null}
+            <TextInput accessibilityLabel="Editable quip" value={reply} onChangeText={(text) => { setReply(text); setCopied(false); setCopiedReadyMade(false); }} editable={!generating} multiline
               maxLength={QUIP_REPLY_LIMIT} style={styles.input} textAlignVertical="top" />
             <Text style={styles.hint}>{reply.length}/{QUIP_REPLY_LIMIT}</Text>
-            <Pressable accessibilityRole="button" onPress={() => void copy()} style={styles.secondaryButton}>
+            <Pressable accessibilityRole="button" onPress={() => void copyText(reply, 'draft')} style={styles.secondaryButton}>
               {copied ? <Check color={colors.brand} size={16} /> : <Copy color={colors.brand} size={16} />}<Text style={styles.buttonText}>{copied ? 'Copied' : 'Copy Quip'}</Text>
             </Pressable>
           </View>
@@ -393,12 +440,15 @@ const styles = StyleSheet.create({
   section: { marginTop: spacing.md },
   card: { padding: spacing.md, marginVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, backgroundColor: colors.surface },
   bookCard: { padding: spacing.md, marginVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radii.lg, backgroundColor: colors.surface },
-  bookCardHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  bookCardHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  bookCover: { width: 52, height: 74, position: 'relative', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
+  bookCoverImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
   bookCardCopy: { flex: 1, minWidth: 0 },
   bookTitle: { color: colors.inkStrong, fontSize: type.heading, lineHeight: 26, fontFamily: 'Newsreader_700Bold', marginTop: spacing.xs },
+  bookTopicLoading: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
+  cacheError: { marginTop: spacing.sm },
   bookTopic: { padding: spacing.sm, marginTop: spacing.sm, borderRadius: radii.md, backgroundColor: colors.brandPale },
-  topicEyebrow: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '800', letterSpacing: 0.6 },
-  topicTitle: { color: colors.inkStrong, fontSize: type.body, lineHeight: 20, fontWeight: '700', marginTop: spacing.xxs },
+  topicTitle: { color: colors.inkStrong, fontSize: type.body, lineHeight: 20, fontWeight: '700' },
   topicReason: { color: colors.secondary, fontSize: type.caption, lineHeight: 17, marginTop: spacing.xxs },
   heading: { color: colors.inkStrong, fontSize: type.subtitle, fontWeight: '700', marginVertical: spacing.xs },
   label: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '700', marginTop: spacing.xs },
@@ -415,11 +465,10 @@ const styles = StyleSheet.create({
   preferenceLabel: { color: colors.secondary, fontSize: type.caption, fontWeight: '800', letterSpacing: 0.7, marginBottom: spacing.xxs },
   readyMadeOption: { flexGrow: 1, alignItems: 'center', minWidth: 80 },
   variantPreview: { padding: spacing.md, marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radii.lg, backgroundColor: colors.surface },
-  variantBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  variantBadge: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '700', paddingHorizontal: spacing.xs, paddingVertical: spacing.xxs, borderRadius: radii.pill, backgroundColor: colors.brandPale },
   variantReply: { color: colors.body, fontSize: type.body, lineHeight: 22, marginTop: spacing.sm },
-  useButton: { minHeight: 42, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: spacing.sm, marginTop: spacing.xs, borderRadius: radii.pill, backgroundColor: colors.brandPale },
+  useButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: spacing.sm, marginTop: spacing.xs, borderRadius: radii.pill, backgroundColor: colors.brandPale },
   useButtonText: { color: colors.brandDeep, fontSize: type.footnote, fontWeight: '700' },
+  staleNotice: { padding: spacing.sm, marginVertical: spacing.xs, borderRadius: radii.md, backgroundColor: colors.surfaceWarm, color: colors.ink, fontSize: type.footnote, lineHeight: 19 },
   replaceNotice: { padding: spacing.sm, marginTop: spacing.sm, borderRadius: radii.md, backgroundColor: colors.surfaceWarm },
   input: { minHeight: 120, padding: spacing.sm, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.md, backgroundColor: colors.surfaceWarm, color: colors.ink, fontSize: type.body, lineHeight: 22 },
   checkbox: { width: 24, height: 24, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
