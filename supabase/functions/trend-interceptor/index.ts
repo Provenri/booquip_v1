@@ -1,5 +1,5 @@
 // @ts-ignore Deno requires explicit TypeScript extensions.
-import { isQuipStance, isQuipStyle, isRecord, parseQuipIdea, parseQuipResult, parseSingleBookQuip } from '../_shared/quip.ts';
+import { isQuipStance, isQuipStyle, isRecord, parseQuipIdea, parseQuipResult, parseSingleBookQuip, isSingleBookQuipStyle } from '../_shared/quip.ts';
 // @ts-ignore Deno requires explicit TypeScript extensions.
 import { buildQuipPrompt, buildSingleBookQuipPrompt, LEGACY_QUIP_PROMPT, QUIP_IDEA_PROMPT, SINGLE_BOOK_IDEA_PROMPT } from './prompt.ts';
 
@@ -75,6 +75,7 @@ edgeRuntime.serve(async (request: Request) => {
   if (
     (payload.stance !== undefined && !isQuipStance(payload.stance)) ||
     (payload.style !== undefined && !isQuipStyle(payload.style)) ||
+    (singleBook && payload.style !== undefined && !isSingleBookQuipStyle(payload.style)) ||
     (payload.includeRelevance !== undefined && typeof payload.includeRelevance !== 'boolean')
   ) {
     return jsonResponse(400, { error: 'The selected stance, style, or relevance option is invalid.' });
@@ -94,7 +95,7 @@ edgeRuntime.serve(async (request: Request) => {
     const swipesUrl = new URL('/rest/v1/user_swipes', supabaseUrl);
     swipesUrl.searchParams.set('select', 'book_id');
     swipesUrl.searchParams.set('state', 'eq.read');
-    swipesUrl.searchParams.set('quip_enabled', 'eq.true');
+    if (!singleBook) swipesUrl.searchParams.set('quip_enabled', 'eq.true');
     if (requestedBookIds) {
       swipesUrl.searchParams.set('book_id', `in.(${requestedBookIds.map((bookId) => JSON.stringify(bookId)).join(',')})`);
     }
@@ -105,11 +106,15 @@ edgeRuntime.serve(async (request: Request) => {
       return jsonResponse(502, { error: 'Could not verify the selected Read books.' });
     }
     if (swipes.length === 0) {
-      return jsonResponse(403, { error: 'Turn Quip on for a Read book before drafting a reply.' });
+      return jsonResponse(403, { error: singleBook
+        ? 'Custom Quips require a book on your Finished shelf.'
+        : 'Turn Quip on for a Read book before drafting a reply.' });
     }
     const bookIds = swipes.map((swipe: { book_id: string }) => swipe.book_id);
     if (requestedBookIds && (bookIds.length !== requestedBookIds.length || requestedBookIds.some((id) => !bookIds.includes(id)))) {
-      return jsonResponse(409, { error: 'Some selected books are no longer Quip-enabled on your Read shelf. Refresh and try again.' });
+      return jsonResponse(409, { error: singleBook
+        ? 'The selected book is no longer on your Finished shelf. Refresh and try again.'
+        : 'Some selected books are no longer Quip-enabled on your Read shelf. Refresh and try again.' });
     }
 
     const booksUrl = new URL('/rest/v1/books', supabaseUrl);
@@ -170,7 +175,7 @@ edgeRuntime.serve(async (request: Request) => {
           {
             role: 'system',
             content: isIdea ? singleBook ? SINGLE_BOOK_IDEA_PROMPT : QUIP_IDEA_PROMPT
-              : singleBook && style !== 'concise' ? buildSingleBookQuipPrompt(stance, style)
+              : singleBook ? buildSingleBookQuipPrompt(stance, isSingleBookQuipStyle(style) ? style : 'natural')
                 : includeRelevance ? buildQuipPrompt(stance, style) : LEGACY_QUIP_PROMPT,
           },
           {

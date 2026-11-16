@@ -1,3 +1,6 @@
+// @ts-ignore Deno requires explicit TypeScript extensions.
+import { BOOK_ON_RAMP_PROMPT } from '../_shared/bookOnRamp.ts';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -57,7 +60,7 @@ edgeRuntime.serve(async (request: Request) => {
         messages: [
           {
             role: 'system',
-            content: 'You are BooQuip’s book guide. In 2 or 3 short sentences and no more than 70 words, give a modern reader a 30-second on-ramp to the book. Base book details only on the supplied short take; do not invent plot points or claims. If the short take says no synopsis is available, do not infer plot, genre, or subject; offer a general question to guide a first reading instead. Mention the publication year only when one is supplied. Do not quote or imitate the book. Return plain text only.',
+            content: BOOK_ON_RAMP_PROMPT,
           },
           {
             role: 'user',

@@ -24,10 +24,12 @@ export const QUIP_RELEVANCE_LABELS = {
 
 export type QuipStance = typeof QUIP_STANCES[number]['id'];
 export type QuipStyle = typeof QUIP_STYLES[number]['id'];
-export type SingleBookQuipStyle = Exclude<QuipStyle, 'concise'>;
-export const SINGLE_BOOK_QUIP_STYLES = QUIP_STYLES
-  .filter((option): option is typeof option & { id: SingleBookQuipStyle } => option.id !== 'concise')
-  .map((option) => ({ ...option, label: option.id === 'natural' ? 'Neutral' : option.label }));
+export type SingleBookQuipStyle = 'natural' | 'curious' | 'witty';
+export const SINGLE_BOOK_QUIP_STYLES: { id: SingleBookQuipStyle; label: string }[] = [
+  { id: 'natural', label: 'Neutral' },
+  { id: 'curious', label: 'Curious' },
+  { id: 'witty', label: 'Witty' },
+];
 export type QuipRelevanceLevel = keyof typeof QUIP_RELEVANCE_LABELS;
 export type QuipBookRelevance = { bookId: string; level: QuipRelevanceLevel };
 export type QuipResult = { reply: string; relevance: QuipBookRelevance[] };
@@ -57,6 +59,10 @@ export function isQuipStance(value: unknown): value is QuipStance {
 
 export function isQuipStyle(value: unknown): value is QuipStyle {
   return QUIP_STYLES.some((option) => option.id === value);
+}
+
+export function isSingleBookQuipStyle(value: unknown): value is SingleBookQuipStyle {
+  return SINGLE_BOOK_QUIP_STYLES.some((option) => option.id === value);
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

@@ -46,7 +46,7 @@ function setup(t, options = {}) {
     const ids = filter ? JSON.parse(`[${filter.slice(4, -1)}]`) : BOOKS.map((book) => book.id);
     if (url.pathname === '/rest/v1/user_swipes') {
       assert.equal(url.searchParams.get('state'), 'eq.read');
-      assert.equal(url.searchParams.get('quip_enabled'), 'eq.true');
+      assert.ok(url.searchParams.get('quip_enabled') === null || url.searchParams.get('quip_enabled') === 'eq.true');
       return Response.json(ids.filter((id) => (options.eligible ?? BOOKS.map((book) => book.id)).includes(id))
         .map((book_id) => ({ book_id })));
     }
@@ -101,7 +101,8 @@ test('single-book rejects whole-library, missing, duplicate and incompatible inp
   const calls = setup(t);
   for (const overrides of [
     { bookIds: undefined }, { bookIds: [] }, { bookIds: ['a', 'b'] }, { bookIds: ['a', 'a'] },
-    { style: 'concise' }, { includeRelevance: true }, { includeRelevance: false }, { workflow: 'unknown' },
+    { style: 'concise' }, { style: 'reflective' }, { style: 'practical' },
+    { includeRelevance: true }, { includeRelevance: false }, { workflow: 'unknown' },
   ]) {
     assert.equal((await handler(singleBookRequest(overrides))).status, 400, JSON.stringify(overrides));
   }
@@ -160,10 +161,23 @@ test('single-book seed generation sends no existing seed and uses only one confi
   assert.equal((await handler(ideaRequest({ workflow: 'single-book' }))).status, 400);
 });
 
-test('a book removed from the enabled shelf prevents single-book generation', async (t) => {
+test('a book outside Finished, including a To read book, prevents single-book generation', async (t) => {
   const calls = setup(t, { eligible: ['b'] });
   assert.equal((await handler(singleBookRequest())).status, 403);
   assert.equal(calls.length, 1);
+});
+
+test('custom Quips accept all Finished books without the legacy Quip toggle', async (t) => {
+  const calls = setup(t, { content: () => JSON.stringify({ reply: REPLY }) });
+  assert.equal((await handler(singleBookRequest())).status, 200);
+  assert.equal(calls[0].url.searchParams.get('state'), 'eq.read');
+  assert.equal(calls[0].url.searchParams.get('quip_enabled'), null);
+});
+
+test('legacy workflows retain the Quip-enabled shelf filter', async (t) => {
+  const calls = setup(t);
+  assert.equal((await handler(request())).status, 200);
+  assert.equal(calls[0].url.searchParams.get('quip_enabled'), 'eq.true');
 });
 
 test('book ideas use only selected eligible book summaries, without sending the existing seed or trend', async (t) => {

@@ -1,34 +1,19 @@
 import type { Book } from '@/lib/books';
 import { supabase } from '@/lib/supabase';
-import { FunctionsHttpError } from '@supabase/supabase-js';
-import { isRecord } from '@/supabase/functions/_shared/quip';
 import { withAiTimeout } from '@/lib/aiRequest';
+import { BOOK_ON_RAMP_CACHE_VERSION, parseBookOnRamp } from '@/supabase/functions/_shared/bookOnRamp';
 
-export async function getBookOnRamp(book: Book, signal?: AbortSignal) {
-  if (!supabase) throw new Error('Connect Supabase to generate a book on-ramp.');
+export async function getBookOnRamp(book: Book, signal?: AbortSignal): Promise<string | null> {
+  if (!supabase) throw new Error('Connect to load a 30-second read.');
   const client = supabase;
-
   return withAiTimeout(async (requestSignal) => {
-    const { data, error } = await client.functions.invoke('book-on-ramp', {
-      body: {
-        book: {
-          title: book.title,
-          author: book.author,
-          year: book.year,
-          note: book.note,
-        },
-      },
-      signal: requestSignal,
-    });
-
-    if (error) {
-      if (error instanceof FunctionsHttpError) {
-        const body: unknown = await error.context.json();
-        if (isRecord(body) && typeof body.error === 'string') throw new Error(body.error);
-      }
-      throw new Error(error.message || 'Could not generate the book on-ramp.');
-    }
-    if (typeof data?.onRamp !== 'string' || !data.onRamp.trim()) throw new Error('The on-ramp response was empty.');
-    return data.onRamp.trim();
+    const { data, error } = await client.from('book_on_ramp_cache')
+      .select('on_ramp')
+      .eq('book_id', book.id)
+      .eq('prompt_version', BOOK_ON_RAMP_CACHE_VERSION)
+      .abortSignal(requestSignal)
+      .maybeSingle();
+    if (error) throw new Error(`Could not load the 30-second read: ${error.message}`);
+    return data === null ? null : parseBookOnRamp(data.on_ramp);
   }, 'Your 30-second read timed out. Check your connection and try again.', signal, 30_000);
 }

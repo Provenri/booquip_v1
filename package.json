@@ -9,7 +9,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "dev": "expo start --dev-client",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "quip:cache": "node pipeline/generate-quip-cache.mjs",
+    "onramp:cache": "node pipeline/generate-book-on-ramps.mjs"
   },
   "dependencies": {
     "@expo-google-fonts/newsreader": "^0.4.1",

@@ -8,3 +8,9 @@ export function getSwipeAction(x: number, y: number, velocityX: number, velocity
   if (Math.abs(x) < 45 && !isFlick) return undefined;
   return x > 0 ? 'tbr' : canGoNext ? 'next' : undefined;
 }
+
+export function getShelfSwipeAction(x: number, y: number, velocityX: number, velocityY: number): 'quip' | 'return' | undefined {
+  'worklet';
+  const action = getSwipeAction(x, y, velocityX, velocityY, true);
+  return action === 'tbr' ? 'quip' : action === 'next' ? 'return' : undefined;
+}

@@ -7,8 +7,9 @@ import Pressable from '@/components/MotionPressable';
 import type { Book } from '@/lib/books';
 import { colors, radii, spacing, type } from '@/constants/theme';
 
-export default function QuipBookPicker({ books, selectedId, onSelect, onClose }: {
+export default function QuipBookPicker({ books, readBookIds, selectedId, onSelect, onClose }: {
   books: Book[];
+  readBookIds: string[];
   selectedId: string | null;
   onSelect: (bookId: string) => void;
   onClose: () => void;
@@ -25,11 +26,11 @@ export default function QuipBookPicker({ books, selectedId, onSelect, onClose }:
               <X color={colors.secondary} size={20} />
             </Pressable>
           </View>
-          <Text style={styles.hint}>Use one Quip-enabled Finished book as context.</Text>
+          <Text style={styles.hint}>Choose from To read or Finished. Only Finished books allow custom crafting.</Text>
           <FlashList
             data={books}
             keyExtractor={(book) => book.id}
-            extraData={selectedId}
+            extraData={[selectedId, readBookIds]}
             renderItem={({ item }) => (
               <Pressable
                 accessibilityRole="radio"
@@ -38,12 +39,13 @@ export default function QuipBookPicker({ books, selectedId, onSelect, onClose }:
                 onPress={() => onSelect(item.id)}
                 style={styles.row}
               >
-                <BookListCard book={item} selected={item.id === selectedId}>
+                <BookListCard book={item} selected={item.id === selectedId}
+                  annotation={<Text style={styles.shelf}>{readBookIds.includes(item.id) ? 'Finished · Ready-made + custom' : 'To read · Ready-made'}</Text>}>
                   {item.id === selectedId ? <Check color={colors.brand} size={20} /> : null}
                 </BookListCard>
               </Pressable>
             )}
-            ListEmptyComponent={<Text style={styles.hint}>Turn Quip on for a book in Finished, then return here.</Text>}
+            ListEmptyComponent={<Text style={styles.hint}>Save a book to To read or Finished to start a Quip.</Text>}
           />
         </View>
       </View>
@@ -60,4 +62,5 @@ const styles = StyleSheet.create({
   close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   hint: { color: colors.secondary, fontSize: type.caption, lineHeight: 18, marginBottom: spacing.sm },
   row: { marginBottom: spacing.xs },
+  shelf: { color: colors.brandDeep, fontSize: type.caption, marginTop: 4 },
 });

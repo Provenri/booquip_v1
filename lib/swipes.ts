@@ -40,6 +40,7 @@ export async function saveUserSwipe(
   bookId: string,
   state: SwipeState,
   freezeUntil: string | null = null,
+  quipEnabled?: boolean,
 ) {
   if (!supabase) return;
 
@@ -49,6 +50,7 @@ export async function saveUserSwipe(
       book_id: bookId,
       state,
       freeze_until: freezeUntil,
+      ...(quipEnabled !== undefined ? { quip_enabled: quipEnabled } : {}),
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'user_id,book_id' },

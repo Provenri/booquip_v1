@@ -44,12 +44,13 @@ import { getSwipeAction, type BookAction } from '@/lib/bookGesture';
 import { linkCurrentUserEmail, resendCurrentUserEmailChange, signInWithEmail } from '@/lib/auth';
 import AccountSheet from '@/components/AccountSheet';
 import BookListCard from '@/components/BookListCard';
+import ShelfSwipeCard from '@/components/ShelfSwipeCard';
 import Pressable from '@/components/MotionPressable';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { deleteUserSwipe, getOrCreateAnonymousUser, loadUserSwipes, saveQuipEnabled, saveUserSwipe } from '@/lib/swipes';
+import { deleteUserSwipe, getOrCreateAnonymousUser, loadUserSwipes, saveUserSwipe } from '@/lib/swipes';
 import { getBookOnRamp } from '@/lib/onramp';
 import QuipWorkspace from '@/components/QuipWorkspace';
-import { generateQuipIdea, generateTrendReply } from '@/lib/trendInterceptor';
+import { generateTrendReply } from '@/lib/trendInterceptor';
 import { EMPTY_CHART_DATA, loadCatalog, loadChartData, loadPillars, type ChartData } from '@/lib/catalog';
 import { colors, pageLayout, radii, spacing, type } from '@/constants/theme';
 
@@ -153,6 +154,8 @@ export default function DiscoverScreen() {
   const [tbrIds, setTbrIds] = useState<string[]>([]);
   const [readIds, setReadIds] = useState<string[]>([]);
   const [quipBookIds, setQuipBookIds] = useState<string[]>([]);
+  const [quipSelectedBookId, setQuipSelectedBookId] = useState<string | null>(null);
+  const [returnedBook, setReturnedBook] = useState<{ bookId: string; shelf: 'tbr' | 'read'; quipEnabled: boolean } | null>(null);
   const [books, setBooks] = useState<Book[]>(BOOKS);
   const [pillars, setPillars] = useState(PILLARS);
   const [chartData, setChartData] = useState<ChartData>(EMPTY_CHART_DATA);
@@ -179,9 +182,7 @@ export default function DiscoverScreen() {
   const [syncMessage, setSyncMessage] = useState('');
   const [isActionSaving, setIsSaving] = useState(false);
   const [pendingBookAction, setPendingBookAction] = useState<'read' | 'freeze' | null>(null);
-  const [pendingQuipIds, setPendingQuipIds] = useState<string[]>([]);
-  const pendingQuipIdsRef = useRef(new Set<string>());
-  const isSaving = isActionSaving || isRefreshing || pendingQuipIds.length > 0;
+  const isSaving = isActionSaving || isRefreshing;
   const [isTransitioning, setIsTransitioning] = useState(false);
   const reducedMotion = useReducedMotion();
   const dragX = useSharedValue(0);
@@ -324,6 +325,7 @@ export default function DiscoverScreen() {
         setTbrIds(restoredTbr);
         setReadIds(restoredRead);
         setQuipBookIds(restoredQuip);
+        setReturnedBook((previous) => previous && swipes.some((swipe) => swipe.book_id === previous.bookId) ? null : previous);
         setFrozenUntil(restoredFrozen);
         setSyncMessage(remoteChartData.failed ? 'Chart rankings could not refresh. Pull down to try again.' : '');
         setSyncStatus(remoteChartData.failed ? 'error' : 'connected');
@@ -344,7 +346,7 @@ export default function DiscoverScreen() {
   }, [authRetryCount]);
 
   const handleRefresh = () => {
-    if (refreshRequested.current || isSaving || pendingQuipIdsRef.current.size > 0 || transitioningRef.current || syncStatus === 'loading') return;
+    if (refreshRequested.current || isSaving || transitioningRef.current || syncStatus === 'loading') return;
     if (!isSupabaseConfigured) {
       setFrozenUntil((items) => ({ ...items }));
       return;
@@ -421,7 +423,7 @@ export default function DiscoverScreen() {
       contentOpacity.set(withTiming(1, { duration: 160 }));
       bookOpacity.set(withTiming(1, { duration: 160 }));
     }
-  }, [book?.id, bookOpacity, contentOpacity, dragX, indicatorsVisible, reducedMotion]);
+  }, [book?.id, book?.title, book?.author, book?.year, book?.note, bookOpacity, contentOpacity, dragX, indicatorsVisible, reducedMotion]);
 
   useEffect(() => {
     if (!onRampText || !isOnRampVisible || !shouldScrollToOnRamp.current) return;
@@ -472,13 +474,17 @@ export default function DiscoverScreen() {
     try {
       const result = await getBookOnRamp(book, controller.signal);
       if (mountedRef.current && requestId === onRampRequestId.current) {
+        if (result === null) {
+          setOnRampError('A 30-second read is not available for this book yet.');
+          return;
+        }
         shouldScrollToOnRamp.current = true;
         setOnRampText(result);
         setIsOnRampVisible(true);
       }
     } catch (error) {
       if (mountedRef.current && requestId === onRampRequestId.current) {
-        setOnRampError(error instanceof Error ? error.message : 'Could not generate the book on-ramp.');
+        setOnRampError(error instanceof Error ? error.message : 'Could not load the 30-second read.');
       }
     } finally {
       if (onRampController.current === controller) onRampController.current = null;
@@ -555,6 +561,7 @@ export default function DiscoverScreen() {
       contentOpacity.set(reducedMotion ? 1 : 0);
       setSelectedBookId(nextBook?.id ?? null);
     }
+    if (action !== 'next') setReturnedBook((previous) => previous?.bookId === selectedBook.id ? null : previous);
     if (action === 'tbr') setTbrIds((ids) => [...ids, selectedBook.id]);
     if (action === 'read') setReadIds((ids) => [...ids, selectedBook.id]);
     if (action === 'freeze') {
@@ -574,33 +581,6 @@ export default function DiscoverScreen() {
       dragX.set(0);
       indicatorsVisible.set(0);
     });
-  };
-
-  const handleQuipToggle = (bookId: string) => {
-    if (syncStatus === 'loading' || isActionSaving || refreshRequested.current || pendingQuipIdsRef.current.has(bookId)) return;
-    const wasEnabled = quipBookIds.includes(bookId);
-    const nextEnabled = !wasEnabled;
-    setQuipBookIds((ids) => nextEnabled ? [...ids, bookId] : ids.filter((id) => id !== bookId));
-    if (!userId || !isSupabaseConfigured) return;
-
-    pendingQuipIdsRef.current.add(bookId);
-    setPendingQuipIds([...pendingQuipIdsRef.current]);
-    void saveQuipEnabled(userId, bookId, nextEnabled)
-      .then(() => {
-        setSyncMessage('');
-        setSyncStatus('connected');
-      })
-      .catch(() => {
-        setQuipBookIds((ids) => wasEnabled
-          ? ids.includes(bookId) ? ids : [...ids, bookId]
-          : ids.filter((id) => id !== bookId));
-        setSyncMessage('Could not update the Quip setting. The previous setting was restored.');
-        setSyncStatus('error');
-      })
-      .finally(() => {
-        pendingQuipIdsRef.current.delete(bookId);
-        setPendingQuipIds([...pendingQuipIdsRef.current]);
-      });
   };
 
   const resetCardPosition = (velocityX = 0) => {
@@ -727,7 +707,8 @@ export default function DiscoverScreen() {
     const wasInTbr = tbrIds.includes(bookId);
     const wasRead = readIds.includes(bookId);
     const wasQuipEnabled = quipBookIds.includes(bookId);
-    if (!shelfBook || (!wasInTbr && !wasRead) || isSaving) return;
+    if (!shelfBook || (!wasInTbr && !wasRead) || isSaving || syncStatus === 'loading') return;
+    const undo = { bookId, shelf: wasRead ? 'read' as const : 'tbr' as const, quipEnabled: wasQuipEnabled };
     const returnToDiscovery = shelfBook.isActive !== false;
     if (isSupabaseConfigured && !userId) {
       setSyncMessage('Your shelf is not connected. Reconnect before returning this book to discovery.');
@@ -736,6 +717,7 @@ export default function DiscoverScreen() {
     }
 
     setTbrIds((ids) => ids.filter((id) => id !== bookId));
+    setReturnedBook(null);
     setReadIds((ids) => ids.filter((id) => id !== bookId));
     setQuipBookIds((ids) => ids.filter((id) => id !== bookId));
     setSelectedPillar(returnToDiscovery ? shelfBook.pillar : null);
@@ -745,12 +727,14 @@ export default function DiscoverScreen() {
     setScreen(returnToDiscovery ? 'discover' : sourceScreen);
 
     if (!userId || !isSupabaseConfigured) {
+      setReturnedBook(undo);
       if (!returnToDiscovery) setSyncMessage('Archived book removed from your shelf; it remains out of discovery.');
       return;
     }
     setIsSaving(true);
     void deleteUserSwipe(userId, bookId)
       .then(() => {
+        setReturnedBook(undo);
         setSyncMessage(returnToDiscovery ? '' : 'Archived book removed from your shelf; it remains out of discovery.');
         setSyncStatus('connected');
       })
@@ -764,6 +748,39 @@ export default function DiscoverScreen() {
         setSyncStatus('error');
       })
       .finally(() => setIsSaving(false));
+  };
+
+  const handleUndoReturn = async () => {
+    if (!returnedBook || isSaving || syncStatus === 'loading') return;
+    const restore = returnedBook;
+    setIsSaving(true);
+    try {
+      if (isSupabaseConfigured) {
+        if (!userId) throw new Error('Reconnect before restoring your book.');
+        await saveUserSwipe(userId, restore.bookId, restore.shelf, null, restore.quipEnabled);
+      }
+      if (restore.shelf === 'read') {
+        setReadIds((ids) => ids.includes(restore.bookId) ? ids : [...ids, restore.bookId]);
+        if (restore.quipEnabled) setQuipBookIds((ids) => ids.includes(restore.bookId) ? ids : [...ids, restore.bookId]);
+      } else setTbrIds((ids) => ids.includes(restore.bookId) ? ids : [...ids, restore.bookId]);
+      setReturnedBook(null);
+      setSelectedBookId(null);
+      setSection('book');
+      setScreen(restore.shelf);
+      setSyncMessage('');
+      setSyncStatus(isSupabaseConfigured ? 'connected' : 'local');
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : 'Could not restore the book. Try Undo again.');
+      setSyncStatus('error');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openShelfQuip = (bookId: string) => {
+    if (isSaving || syncStatus === 'loading') return;
+    setQuipSelectedBookId(bookId);
+    setSection('quip');
   };
 
   const handleLinkEmail = async (email: string) => {
@@ -791,6 +808,8 @@ export default function DiscoverScreen() {
     if (error) throw error;
 
     setUserId(null);
+    setQuipSelectedBookId(null);
+    setReturnedBook(null);
     setAccountEmail(null);
     setPendingEmail(null);
     setIsAnonymous(true);
@@ -815,6 +834,8 @@ export default function DiscoverScreen() {
     const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
     if (signOutError) throw signOutError;
     setUserId(null);
+    setQuipSelectedBookId(null);
+    setReturnedBook(null);
     setAccountEmail(null);
     setPendingEmail(null);
     setIsAnonymous(true);
@@ -832,7 +853,7 @@ export default function DiscoverScreen() {
   };
 
   const readBooks = books.filter((item) => readIds.includes(item.id));
-  const quipBooks = readBooks.filter((item) => quipBookIds.includes(item.id));
+  const quipBooks = books.filter((item) => readIds.includes(item.id) || tbrIds.includes(item.id));
   const shelfBooks = screen === 'tbr'
     ? books.filter((item) => tbrIds.includes(item.id))
     : screen === 'read'
@@ -878,30 +899,25 @@ export default function DiscoverScreen() {
       </View>
     </View>
   );
-  const renderShelfBook = ({ item }: ListRenderItemInfo<Book>) => (
-    <BookListCard book={item} selected={screen === 'read' && quipBookIds.includes(item.id)}>
-      {screen === 'read' && (
+  const renderShelfBookContent = (item: Book) => (
+    <BookListCard book={item}>
+      {(screen === 'read' || screen === 'tbr') && (
         <Pressable
-          accessibilityRole="switch"
-          accessibilityState={{
-            checked: quipBookIds.includes(item.id),
-            disabled: isActionSaving || isRefreshing || pendingQuipIds.includes(item.id) || syncStatus === 'loading',
-            busy: pendingQuipIds.includes(item.id),
-          }}
-          accessibilityLabel={`${quipBookIds.includes(item.id) ? 'Quip on for' : 'Quip off for'} ${item.title}`}
-          disabled={isActionSaving || isRefreshing || pendingQuipIds.includes(item.id) || syncStatus === 'loading'}
-          onPress={() => handleQuipToggle(item.id)}
+          accessibilityRole="button"
+          accessibilityLabel={`Open Quips for ${item.title}`}
+          disabled={isSaving || syncStatus === 'loading'}
+          onPress={() => openShelfQuip(item.id)}
           style={({ pressed }) => [
             styles.quipToggle,
             styles.finishedBookAction,
-            quipBookIds.includes(item.id) && styles.quipToggleEnabled,
-            (isActionSaving || isRefreshing || pendingQuipIds.includes(item.id) || syncStatus === 'loading') && styles.actionDisabled,
+            styles.quipToggleEnabled,
+            (isSaving || syncStatus === 'loading') && styles.actionDisabled,
             pressed && styles.actionPressed,
           ]}
         >
-          <MessageCircle color={quipBookIds.includes(item.id) ? colors.brand : colors.secondary} size={14} />
-          <Text style={[styles.quipToggleLabel, quipBookIds.includes(item.id) && styles.quipToggleLabelEnabled]}>
-            {pendingQuipIds.includes(item.id) ? 'SAVING…' : quipBookIds.includes(item.id) ? 'QUIP ON' : 'QUIP OFF'}
+          <MessageCircle color={colors.brand} size={14} />
+          <Text style={[styles.quipToggleLabel, styles.quipToggleLabelEnabled]}>
+            QUIP
           </Text>
         </Pressable>
       )}
@@ -942,6 +958,12 @@ export default function DiscoverScreen() {
       )}
     </BookListCard>
   );
+  const renderShelfBook = ({ item }: ListRenderItemInfo<Book>) => screen === 'read' || screen === 'tbr' ? (
+    <ShelfSwipeCard bookId={item.id} disabled={isSaving || syncStatus === 'loading'}
+      onQuip={() => openShelfQuip(item.id)} onReturn={() => handleRemoveFromShelf(item.id)}>
+      {renderShelfBookContent(item)}
+    </ShelfSwipeCard>
+  ) : renderShelfBookContent(item);
   const emptyShelfState = (
     <View style={styles.emptyState}>
       <View style={styles.emptyIcon}><BookOpen color={colors.brandMuted} size={24} /></View>
@@ -1013,15 +1035,25 @@ export default function DiscoverScreen() {
             </Pressable>
           </View>
 
+          {returnedBook ? (
+            <View accessibilityLiveRegion="polite" style={styles.undoReturn}>
+              <Text style={styles.undoReturnText}>{books.find((item) => item.id === returnedBook.bookId)?.title ?? 'Book'} returned from your shelf.</Text>
+              <Pressable accessibilityRole="button" disabled={isSaving || syncStatus === 'loading'} onPress={() => void handleUndoReturn()} style={styles.returnBookButton}>
+                <Text style={styles.returnBookButtonText}>UNDO</Text>
+              </Pressable>
+            </View>
+          ) : null}
           {section === 'quip' ? (
             <QuipWorkspace
               sourceBooks={quipBooks}
+              readBookIds={readIds}
+              selectedBookId={quipSelectedBookId}
+              onSelectBook={setQuipSelectedBookId}
               isSaving={isSaving || syncStatus === 'loading'}
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
               refreshError={syncStatus === 'error' ? syncMessage : ''}
               onGenerate={generateTrendReply}
-              onGenerateIdea={generateQuipIdea}
             />
           ) : section === 'book' && screen !== 'discover' ? (
             <FlashList
@@ -1031,7 +1063,7 @@ export default function DiscoverScreen() {
               keyExtractor={(item) => item.id}
               renderItem={renderShelfBook}
               ItemSeparatorComponent={ShelfBookSeparator}
-              extraData={[screen, quipBookIds, frozenUntil, isSaving, pendingQuipIds, syncStatus]}
+              extraData={[screen, frozenUntil, isSaving, syncStatus]}
               ListHeaderComponent={shelfListHeader}
               ListEmptyComponent={emptyShelfState}
               ListFooterComponent={pageFooter}
@@ -1070,7 +1102,7 @@ export default function DiscoverScreen() {
                   <View style={styles.hubSectionCopy}>
                     <Text style={styles.hubSectionEyebrow}>WRITE FROM WHAT YOU READ</Text>
                     <Text style={styles.hubSectionTitle}>Quip</Text>
-                    <Text style={styles.hubSectionDescription}>{quipBooks.length ? `${quipBooks.length} Read ${quipBooks.length === 1 ? 'book is' : 'books are'} switched on for Quip.` : 'Choose which Read books to keep in your Quip library.'}</Text>
+                    <Text style={styles.hubSectionDescription}>Explore ready-made Quips from To read and Finished, or craft your own with a Finished book.</Text>
                   </View>
                   <ArrowRight color={colors.secondary} size={18} />
                 </Pressable>
@@ -1242,7 +1274,7 @@ export default function DiscoverScreen() {
                           ) : <Text style={styles.keywordPending}>Keywords are not available yet.</Text>}
                           {onRampText && isOnRampVisible ? (
                             <View ref={onRampRef} style={styles.onRampSection}>
-                              <Text style={styles.noteLabel}>YOUR 30-SECOND READ</Text>
+                              <Text style={styles.noteLabel}>30-SECOND READ · AI-GENERATED FROM THE SUMMARY</Text>
                               <Text accessibilityLiveRegion="polite" style={styles.onRampText}>{onRampText}</Text>
                             </View>
                           ) : null}
@@ -1330,10 +1362,10 @@ export default function DiscoverScreen() {
                             <Pressable
                               accessibilityRole="button"
                               accessibilityLabel={isOnRampLoading
-                                ? 'Generating a 30-second read'
+                                ? 'Loading a 30-second read'
                                 : onRampText
                                   ? isOnRampVisible ? 'Hide 30-second read' : 'Show 30-second read'
-                                  : 'Generate a 30-second read'}
+                                  : 'Load a 30-second read'}
                               accessibilityState={{ expanded: isOnRampVisible, busy: isOnRampLoading, disabled: isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning }}
                               aria-busy={isOnRampLoading}
                               disabled={isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning}
@@ -1343,7 +1375,7 @@ export default function DiscoverScreen() {
                               {isOnRampLoading
                                 ? <ActivityIndicator size="small" color={colors.brandContrast} />
                                 : <Sparkles color={colors.brandContrast} size={14} />}
-                              <Text style={styles.onRampButtonText}>{isOnRampLoading ? 'Preparing…' : '30s read'}</Text>
+                              <Text style={styles.onRampButtonText}>{isOnRampLoading ? 'Loading…' : '30s read'}</Text>
                             </Pressable>
                             <Pressable
                               accessibilityRole="button"
@@ -1424,6 +1456,8 @@ export default function DiscoverScreen() {
 }
 
 const styles = StyleSheet.create({
+  undoReturn: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, backgroundColor: colors.brandPale },
+  undoReturnText: { flex: 1, color: colors.body, fontSize: type.footnote },
   safeArea: { flex: 1, backgroundColor: colors.page },
   appShell: { flex: 1, flexDirection: 'row', backgroundColor: colors.page },
   sidebar: { width: 238, backgroundColor: colors.forest, paddingHorizontal: spacing.xl, paddingTop: spacing.xxl, paddingBottom: 22 },
