@@ -1,0 +1,196 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
+<meta content="mobile_tab" name="shell-type">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..800;1,6..72,400..800&amp;family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<style>
+    @layer base {
+      html, body {
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        background-color: #FDFBF7;
+      }
+      body {
+        overscroll-behavior: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .pb-safe {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      .pt-safe {
+        padding-top: env(safe-area-inset-top, 0px);
+      }
+      main > :first-child {
+        margin-top: 0 !important;
+      }
+      main > :last-child {
+        margin-bottom: 0 !important;
+      }
+    }
+    ::-webkit-scrollbar {
+      display: none;
+    }
+  </style>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "surface": "#FDFBF7",
+            "background": "#FDFBF7",
+            "primary": "#175c47",
+            "primary-container": "#34755e",
+            "on-primary": "#ffffff",
+            "on-primary-container": "#b5f9dc",
+            "primary-fixed": "#adf1d4",
+            "on-primary-fixed": "#002116",
+            "surface-container-lowest": "#ffffff",
+            "surface-container-low": "#f6f3ee",
+            "surface-container": "#eeeae2",
+            "surface-container-high": "#e6e2d9",
+            "surface-container-highest": "#dcd8cf",
+            "on-surface": "#191c1a",
+            "on-surface-variant": "#49454f",
+            "outline": "#79747e",
+            "outline-variant": "#c4c7c5",
+            "secondary-container": "#d2e7e2",
+            "on-secondary-fixed": "#0c1f1c"
+          },
+          borderRadius: {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "2xl": "1rem",
+            "3xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            "serif-display": ["Newsreader", "serif"],
+            "sans": ["Public Sans", "sans-serif"]
+          }
+        }
+      }
+    };
+  </script>
+</head>
+<body class="bg-[#FDFBF7] font-sans text-on-surface antialiased min-h-screen relative flex flex-col selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- Top Bar -->
+<header class="fixed top-0 w-full z-50 bg-[#fbf9f4] backdrop-blur-md pt-safe border-b border-[#e9e5dc]"><div class="h-[60px] min-h-[60px] max-h-[60px] px-4 py-0 flex items-center justify-between max-w-lg mx-auto"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-primary flex items-center justify-center text-white shadow-sm shrink-0"><span class="material-symbols-outlined text-[20px]">auto_stories</span></div><span class="font-serif-display text-2xl font-bold tracking-tight text-[#1a3329] leading-none flex items-center">Quip</span></div><div class="flex items-center text-right shrink-0"><span class="font-serif text-[17px] font-medium text-[#1a3329] tracking-tight leading-none text-right whitespace-nowrap">Shape a thought</span></div></div></header>
+<!-- Main Scrollable Screen Content -->
+<main class="flex-1 flex flex-col w-full bg-[#FDFBF7] pb-24 px-4 pt-20">
+<div class="flex flex-col w-full max-w-lg mx-auto pb-4 pt-1"><!-- Eyebrow & Editorial Heading -->
+
+<!-- Selected Book Card (Single Book Selection) -->
+<section class="flex flex-col gap-2 mb-5">
+<div class="flex items-center justify-between">
+<h2 class="text-[11px] font-bold tracking-wider uppercase text-on-surface-variant">SELECTED BOOK</h2>
+<span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">Finished shelf</span>
+</div>
+<div class="bg-surface-container-lowest rounded-2xl p-3.5 border border-[#e4ded4] shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex items-center justify-between gap-3">
+<div class="flex items-center gap-3">
+<div class="w-10 h-12 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0 border border-primary/20">
+<span class="material-symbols-outlined text-[22px]">auto_stories</span>
+</div>
+<div class="flex flex-col">
+<h3 class="font-serif-display text-[16px] font-bold text-on-surface leading-tight">Schindler's Ark</h3>
+<p class="text-[12px] text-on-surface-variant">Thomas Keneally</p>
+</div>
+</div>
+<button class="text-[12px] font-semibold text-primary hover:text-primary-container px-2.5 py-1 rounded-lg hover:bg-surface-container-low transition-colors inline-flex items-center gap-0.5 shrink-0 active:scale-95" type="button">
+<span>Change book</span>
+<span class="material-symbols-outlined text-[14px]">swap_horiz</span>
+</button>
+</div>
+</section>
+<!-- Two Destination Paths Segmented Switch -->
+<div id="quip-interactive-container" class="flex flex-col gap-4 mb-5"><!-- Two Destination Paths Segmented Switch --><div class="grid grid-cols-2 p-1 bg-surface-container rounded-xl border border-surface-container-highest/60 text-[13px] font-medium transition-all relative"><button id="tab-explore" class="py-2 px-2.5 rounded-lg bg-surface-container-lowest text-primary font-bold shadow-[0_1px_2px_rgba(0,0,0,0.05)] border border-[#e4ded4] flex items-center justify-center gap-1.5 transition-all select-none" type="button" onclick="window.switchToMode('explore')"><span class="material-symbols-outlined text-[16px]">explore</span><span>Explore ready-made</span></button><button id="tab-craft" class="py-2 px-2.5 rounded-lg text-on-surface-variant hover:text-on-surface font-medium border border-transparent flex items-center justify-center gap-1.5 transition-all select-none" type="button" onclick="window.switchToMode('craft')"><span class="material-symbols-outlined text-[16px]">edit_note</span><span>Craft a Quip</span></button></div></div>
+<!-- Craft a Quip Workspace -->
+<div id="workspace-container" class="flex flex-col gap-4 mb-5"><!-- EXPLORE READY-MADE VIEW --><div id="view-explore" class="flex flex-col gap-4 transition-all duration-300 opacity-100"><div class="flex items-center gap-2.5 z-20">
+  <!-- Stance Dropdown Pill -->
+  <div class="relative flex-1">
+    <button id="stance-dropdown-btn" onclick="window.toggleDropdown('stance')" type="button" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-surface-container-lowest border border-[#e4ded4] shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-white text-[13px] font-medium text-on-surface transition-all active:scale-[0.98]">
+      <span class="flex items-center gap-1.5 truncate">
+        <span class="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">Stance:</span>
+        <span id="stance-pill-label" class="font-bold text-primary">Neutral</span>
+      </span>
+      <span id="stance-dropdown-icon" class="material-symbols-outlined text-[18px] text-on-surface-variant transition-transform">arrow_drop_down</span>
+    </button>
+    <div id="stance-dropdown-menu" class="hidden absolute left-0 right-0 mt-1 bg-surface-container-lowest border border-[#e4ded4] rounded-xl shadow-lg p-1.5 flex-col gap-1 z-30">
+      <button type="button" onclick="window.selectStanceOption('Pro')" class="w-full text-left px-3 py-1.5 rounded-lg text-[13px] font-medium text-on-surface hover:bg-surface-container-low transition-colors flex items-center justify-between"><span>Pro</span><span class="material-symbols-outlined text-[16px] text-primary hidden" data-check="Pro">check</span></button>
+      <button type="button" onclick="window.selectStanceOption('Neutral')" class="w-full text-left px-3 py-1.5 rounded-lg text-[13px] font-bold text-primary bg-surface-container-low transition-colors flex items-center justify-between"><span>Neutral</span><span class="material-symbols-outlined text-[16px] text-primary" data-check="Neutral">check</span></button>
+      <button type="button" onclick="window.selectStanceOption('Cons')" class="w-full text-left px-3 py-1.5 rounded-lg text-[13px] font-medium text-on-surface hover:bg-surface-container-low transition-colors flex items-center justify-between"><span>Cons</span><span class="material-symbols-outlined text-[16px] text-primary hidden" data-check="Cons">check</span></button>
+    </div>
+  </div>
+
+  <!-- Style Dropdown Pill -->
+  <div class="relative flex-1">
+    <button id="style-dropdown-btn" onclick="window.toggleDropdown('style')" type="button" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-surface-container-lowest border border-[#e4ded4] shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-white text-[13px] font-medium text-on-surface transition-all active:scale-[0.98]">
+      <span class="flex items-center gap-1.5 truncate">
+        <span class="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">Style:</span>
+        <span id="style-pill-label" class="font-bold text-primary">Neutral</span>
+      </span>
+      <span id="style-dropdown-icon" class="material-symbols-outlined text-[18px] text-on-surface-variant transition-transform">arrow_drop_down</span>
+    </button>
+    <div id="style-dropdown-menu" class="hidden absolute left-0 right-0 mt-1 bg-surface-container-lowest border border-[#e4ded4] rounded-xl shadow-lg p-1.5 flex-col gap-1 z-30">
+      <button type="button" onclick="window.selectStyleOption('Neutral')" class="w-full text-left px-3 py-1.5 rounded-lg text-[13px] font-bold text-primary bg-surface-container-low transition-colors flex items-center justify-between"><span>Neutral</span><span class="material-symbols-outlined text-[16px] text-primary" data-check="Neutral">check</span></button>
+      <button type="button" onclick="window.selectStyleOption('Curious')" class="w-full text-left px-3 py-1.5 rounded-lg text-[13px] font-medium text-on-surface hover:bg-surface-container-low transition-colors flex items-center justify-between"><span>Curious</span><span class="material-symbols-outlined text-[16px] text-primary hidden" data-check="Curious">check</span></button>
+      <button type="button" onclick="window.selectStyleOption('Witty')" class="w-full text-left px-3 py-1.5 rounded-lg text-[13px] font-medium text-on-surface hover:bg-surface-container-low transition-colors flex items-center justify-between"><span>Witty</span><span class="material-symbols-outlined text-[16px] text-primary hidden" data-check="Witty">check</span></button>
+    </div>
+  </div>
+</div><!-- Matrix Controls: Stance & Style --><!-- Active Quip Preview Card --><div class="flex flex-col gap-1.5"><div class="bg-surface-container-lowest rounded-2xl p-4 border border-[#e4ded4] shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col gap-3 relative"><div class="flex items-start gap-2.5"><span class="material-symbols-outlined text-primary text-[24px] leading-none shrink-0 select-none">format_quote</span><p id="quip-text-content" class="font-serif-display text-[16px] text-on-surface leading-relaxed italic transition-all">“Individual courage within a broken system isn't just moral defiance—it is practical logistics. Schindler turned bureaucracy into a weapon of rescue.”</p></div><div class="flex items-center pt-2.5 border-t border-[#ebe5dc] mt-1 text-[11px] text-on-surface-variant justify-end"><span id="char-count" class="font-medium text-neutral-400">162 / 280</span></div></div></div><!-- Action Buttons: Copy as-is and Edit in Craft mode --><div class="p-1.5 bg-surface-container rounded-xl border border-surface-container-highest/60 grid grid-cols-2 gap-2 shadow-[0_1px_2px_rgba(0,0,0,0.02)]"><button onclick="window.refineInCraft()" class="w-full h-11 rounded-lg bg-surface-container-lowest border border-[#e4ded4] text-primary hover:bg-white active:scale-[0.98] shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-all flex items-center justify-center gap-1.5 font-semibold text-[13px] select-none px-2" type="button"><span class="material-symbols-outlined text-[16px]">edit_note</span><span>Refine in Craft</span></button><button onclick="window.copyQuip()" class="w-full h-11 rounded-lg bg-surface-container-lowest border border-[#e4ded4] text-primary hover:bg-white active:scale-[0.98] shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-all flex items-center justify-center gap-1.5 font-semibold text-[13px] select-none px-2" type="button"><span class="material-symbols-outlined text-[16px]">content_copy</span><span>Copy as-is</span></button></div><div id="dropdown-controller" style="display: none;"><script>window.toggleDropdown = function(type) { var stanceMenu = document.getElementById('stance-dropdown-menu'); var styleMenu = document.getElementById('style-dropdown-menu'); if (type === 'stance') { if (styleMenu) styleMenu.classList.add('hidden'); if (stanceMenu) stanceMenu.classList.toggle('hidden'); } else { if (stanceMenu) stanceMenu.classList.add('hidden'); if (styleMenu) styleMenu.classList.toggle('hidden'); } }; window.selectStanceOption = function(val) { window.currentStance = val; var label = document.getElementById('stance-pill-label'); if (label) label.textContent = val; var menu = document.getElementById('stance-dropdown-menu'); if (menu) { menu.classList.add('hidden'); menu.querySelectorAll('button').forEach(function(b) { var check = b.querySelector('[data-check]'); if (b.textContent.trim().startsWith(val)) { b.className = 'w-full text-left px-3 py-1.5 rounded-lg text-[13px] font-bold text-primary bg-surface-container-low transition-colors flex items-center justify-between'; if (check) check.classList.remove('hidden'); } else { b.className = 'w-full text-left px-3 py-1.5 rounded-lg text-[13px] font-medium text-on-surface hover:bg-surface-container-low transition-colors flex items-center justify-between'; if (check) check.classList.add('hidden'); } }); } window.updatePreviewText(); }; window.selectStyleOption = function(val) { window.setStyleState = val; var label = document.getElementById('style-pill-label'); if (label) label.textContent = val; var menu = document.getElementById('style-dropdown-menu'); if (menu) { menu.classList.add('hidden'); menu.querySelectorAll('button').forEach(function(b) { var check = b.querySelector('[data-check]'); if (b.textContent.trim().startsWith(val)) { b.className = 'w-full text-left px-3 py-1.5 rounded-lg text-[13px] font-bold text-primary bg-surface-container-low transition-colors flex items-center justify-between'; if (check) check.classList.remove('hidden'); } else { b.className = 'w-full text-left px-3 py-1.5 rounded-lg text-[13px] font-medium text-on-surface hover:bg-surface-container-low transition-colors flex items-center justify-between'; if (check) check.classList.add('hidden'); } }); } window.updatePreviewText(); }; document.addEventListener('click', function(e) { if (!e.target.closest('#stance-dropdown-btn') && !e.target.closest('#stance-dropdown-menu')) { var sm = document.getElementById('stance-dropdown-menu'); if (sm) sm.classList.add('hidden'); } if (!e.target.closest('#style-dropdown-btn') && !e.target.closest('#style-dropdown-menu')) { var ym = document.getElementById('style-dropdown-menu'); if (ym) ym.classList.add('hidden'); } });</script></div></div><!-- CRAFT A QUIP VIEW (Initially Hidden) --><div id="view-craft" class="hidden flex-col gap-4 transition-all duration-300 opacity-0"><div class="flex flex-col gap-1.5"><div class="flex items-center justify-between"><label for="thought-input" class="text-[11px] font-bold tracking-wider uppercase text-on-surface-variant">YOUR THOUGHT / SEED</label><span id="craft-char-count" class="text-[11px] font-medium text-neutral-400">0 / 280</span></div><div class="relative rounded-2xl bg-surface-container-lowest border border-[#e4ded4] p-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] focus-within:border-primary focus-within:ring-1 focus-within:ring-primary"><textarea id="thought-input" oninput="window.updateCraftCharCount()" rows="4" class="w-full bg-transparent border-0 p-0 text-on-surface font-serif-display text-[15px] leading-relaxed placeholder:text-neutral-400 focus:ring-0 resize-none" placeholder="What insight or question does Schindler's Ark spark for you?"></textarea></div></div><!-- OpenAI Consent Checkbox --><div class="bg-surface-container-low rounded-xl p-3 border border-[#ebe5dc] flex flex-col gap-1.5"><label class="flex items-start gap-2.5 cursor-pointer select-none"><input id="openai-consent" type="checkbox" checked="" class="mt-0.5 rounded text-primary focus:ring-primary border-[#c4c7c5]"><div class="flex flex-col text-[12px] leading-snug"><span class="font-medium text-on-surface">I agree to send Quip inputs to OpenAI</span><span class="text-on-surface-variant text-[11px] hover:text-primary transition-colors cursor-pointer inline-flex items-center gap-0.5">Read privacy policy &amp; model terms ⌵</span></div></label></div><!-- Primary Generate Quip CTA --><div class="grid grid-cols-1 gap-2.5 pt-1"><button id="generate-quip-btn" onclick="window.handleGenerateQuip()" class="w-full h-12 rounded-xl bg-[#175c47] text-white shadow-md hover:bg-[#134e3c] active:scale-[0.98] transition-all flex items-center justify-center gap-2 font-bold tracking-wider text-[14px] select-none" type="button"><span>✨ Generate Quip ✨</span></button><button onclick="window.switchToMode('explore')" class="w-full h-10 rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 font-medium text-[13px] select-none" type="button"><span class="material-symbols-outlined text-[16px]">arrow_back</span><span>Back to Ready-made</span></button></div></div><!-- Toast Notification --><div id="quip-toast" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-[#175c47] text-white px-4 py-2.5 rounded-full shadow-lg flex items-center gap-2 text-[13px] font-semibold opacity-0 pointer-events-none transition-all duration-300 transform translate-y-3"><span class="material-symbols-outlined text-[18px] text-emerald-300">check_circle</span><span id="toast-message">Quip copied to clipboard!</span></div></div></div>
+</main>
+<!-- Bottom Tab Navigation -->
+<nav class="fixed bottom-0 left-0 right-0 z-40 bg-[#fbf9f4]/95 backdrop-blur-md border-t border-[#e9e5dc] px-4 py-2 flex items-center justify-around max-w-[430px] mx-auto">
+  <!-- Book Tab (inactive) -->
+  <a href="#" class="flex flex-col items-center gap-1 py-1 px-3 text-[#5f6861] hover:text-[#1e4738] transition-colors">
+    <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+    </svg>
+    <span class="text-[11px] font-medium tracking-wide">Book</span>
+  </a>
+
+  <!-- Quip Tab (ACTIVE) -->
+  <a href="#" class="flex flex-col items-center gap-1 py-1 px-3">
+    <div class="w-12 h-7 bg-[#d5ebd9] rounded-full flex items-center justify-center">
+      <span class="text-sm font-bold font-serif text-[#1e4738] leading-none">99</span>
+    </div>
+    <span class="text-[11px] font-semibold text-[#1e4738] tracking-wide">Quip</span>
+  </a>
+
+  <!-- Shelf Tab (inactive with badge) -->
+  <a href="#" class="flex flex-col items-center gap-1 py-1 px-3 text-[#5f6861] hover:text-[#1e4738] transition-colors relative">
+    <div class="relative flex items-center justify-center">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+      </svg>
+      <span class="absolute top-0 right-0 w-2 h-2 rounded-full bg-[#1e4738]"></span>
+    </div>
+    <span class="text-[11px] font-medium tracking-wide">Shelf</span>
+  </a>
+
+  <!-- Account Tab (inactive) -->
+  <a href="#" class="flex flex-col items-center gap-1 py-1 px-3 text-[#5f6861] hover:text-[#1e4738] transition-colors">
+    <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+    </svg>
+    <span class="text-[11px] font-medium tracking-wide">Account</span>
+  </a>
+</nav>
+
+
+<script>window.quipMatrix = { 'Pro': { 'Neutral': "Schindler's Ark shows that compromise with evil is sometimes the only pragmatic avenue to save innocent lives.", 'Curious': "Could moral goodness ever remain pure when survival itself requires bribing monstrous tyrants?", 'Witty': "Turns out the most effective shield against totalitarian barbarism was a very thick German ledger." }, 'Neutral': { 'Neutral': "Individual courage within a broken system isn't just moral defiance—it is practical logistics. Schindler turned bureaucracy into a weapon of rescue.", 'Curious': "Where does an opportunist end and a savior begin when the currency of survival is human lives?", 'Witty': "Schindler proved that even greed, when redirected by an iron will, can outsmart bureaucracy." }, 'Cons': { 'Cons': { 'Neutral': "Schindler's Ark demonstrates the tragic limits of individual action against systematic annihilation.", 'Curious': "Why did thousands of other industrialists with the exact same access choose silence over rescue?", 'Witty': "If redemption depends on moral loopholes, history remains a terribly dangerous gamble." } } }; if (!window.quipMatrix['Cons']['Neutral']) { window.quipMatrix['Cons'] = { 'Neutral': "Schindler's Ark exposes how individual heroism, while vital, cannot compensate for systemic state collapse.", 'Curious': "Why did so few contemporaries recognize what Schindler saw in the very same German bureaucracy?", 'Witty': "A reminder that relying on heroic rogue capitalists is hardly a sound human rights strategy." }; } window.currentStance = 'Neutral'; window.setStyleState = 'Neutral'; window.switchToMode = function(mode) { var tabExplore = document.getElementById('tab-explore'); var tabCraft = document.getElementById('tab-craft'); var viewExplore = document.getElementById('view-explore'); var viewCraft = document.getElementById('view-craft'); if (!tabExplore || !tabCraft || !viewExplore || !viewCraft) return; if (mode === 'explore') { tabExplore.className = 'py-2 px-2.5 rounded-lg bg-surface-container-lowest text-primary font-bold shadow-[0_1px_2px_rgba(0,0,0,0.05)] border border-[#e4ded4] flex items-center justify-center gap-1.5 transition-all select-none'; tabCraft.className = 'py-2 px-2.5 rounded-lg text-on-surface-variant hover:text-on-surface font-medium border border-transparent flex items-center justify-center gap-1.5 transition-all select-none'; viewCraft.classList.add('opacity-0'); setTimeout(function() { viewCraft.classList.add('hidden'); viewCraft.classList.remove('flex'); viewExplore.classList.remove('hidden'); viewExplore.classList.add('flex'); setTimeout(function() { viewExplore.classList.remove('opacity-0'); viewExplore.classList.add('opacity-100'); }, 20); }, 150); } else { tabCraft.className = 'py-2 px-2.5 rounded-lg bg-surface-container-lowest text-on-surface font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.05)] border border-[#e4ded4] flex items-center justify-center gap-1.5 transition-all select-none'; tabExplore.className = 'py-2 px-2.5 rounded-lg text-on-surface-variant hover:text-on-surface font-medium border border-transparent flex items-center justify-center gap-1.5 transition-all select-none'; viewExplore.classList.remove('opacity-100'); viewExplore.classList.add('opacity-0'); setTimeout(function() { viewExplore.classList.add('hidden'); viewExplore.classList.remove('flex'); viewCraft.classList.remove('hidden'); viewCraft.classList.add('flex'); setTimeout(function() { viewCraft.classList.remove('opacity-0'); viewCraft.classList.add('opacity-100'); }, 20); }, 150); } }; window.refineInCraft = function() { var quipTextEl = document.getElementById('quip-text-content'); var thoughtInput = document.getElementById('thought-input'); if (quipTextEl && thoughtInput) { var cleanText = quipTextEl.textContent.trim().replace(/^[“"]|[”"]$/g, ''); thoughtInput.value = cleanText; window.updateCraftCharCount(); } window.switchToMode('craft'); if (thoughtInput) { thoughtInput.focus(); } }; window.updateCraftCharCount = function() { var input = document.getElementById('thought-input'); var counter = document.getElementById('craft-char-count'); if (input && counter) { counter.textContent = input.value.length + ' / 280'; } }; window.setStance = function(stance) { window.currentStance = stance; var label = document.getElementById('stance-label'); if (label) label.textContent = stance; var buttons = document.querySelectorAll('.stance-btn'); buttons.forEach(function(btn) { if (btn.getAttribute('data-stance') === stance) { btn.className = 'stance-btn py-1.5 px-2 rounded-lg bg-primary text-white font-bold text-[12px] shadow-[0_1px_2px_rgba(0,0,0,0.08)] border border-transparent active:scale-95 transition-all text-center'; } else { btn.className = 'stance-btn py-1.5 px-2 rounded-lg bg-surface-container-lowest border border-[#e4ded4] text-[12px] font-medium text-on-surface-variant hover:text-on-surface hover:bg-white active:scale-95 transition-all text-center'; } }); window.updatePreviewText(); }; window.setStyle = function(style) { window.setStyleState = style; var label = document.getElementById('style-label'); if (label) label.textContent = style; var buttons = document.querySelectorAll('.style-btn'); buttons.forEach(function(btn) { if (btn.getAttribute('data-style') === style) { btn.className = 'style-btn py-1.5 px-2 rounded-lg bg-primary text-white font-bold text-[12px] shadow-[0_1px_2px_rgba(0,0,0,0.08)] border border-transparent active:scale-95 transition-all text-center'; } else { btn.className = 'style-btn py-1.5 px-2 rounded-lg bg-surface-container-lowest border border-[#e4ded4] text-[12px] font-medium text-on-surface-variant hover:text-on-surface hover:bg-white active:scale-95 transition-all text-center'; } }); window.updatePreviewText(); }; window.updatePreviewText = function() { var textEl = document.getElementById('quip-text-content'); var charCountEl = document.getElementById('char-count'); if (!textEl) return; var text = (window.quipMatrix[window.currentStance] && window.quipMatrix[window.currentStance][window.setStyleState]) || window.quipMatrix['Neutral']['Neutral']; textEl.style.opacity = '0.3'; setTimeout(function() { textEl.textContent = '“' + text + '”'; textEl.style.opacity = '1'; if (charCountEl) { charCountEl.textContent = text.length + ' / 280'; } }, 120); }; window.showToast = function(msg) { var toast = document.getElementById('quip-toast'); var msgEl = document.getElementById('toast-message'); if (msg && msgEl) msgEl.textContent = msg; if (toast) { toast.classList.remove('opacity-0', 'translate-y-3', 'pointer-events-none'); toast.classList.add('opacity-100', 'translate-y-0'); setTimeout(function() { toast.classList.remove('opacity-100', 'translate-y-0'); toast.classList.add('opacity-0', 'translate-y-3', 'pointer-events-none'); }, 2200); } }; window.copyQuip = function() { var textEl = document.getElementById('quip-text-content'); if (textEl) { var clean = textEl.textContent.trim().replace(/^[“"]|[”"]$/g, ''); if (navigator.clipboard) { navigator.clipboard.writeText(clean).catch(function(){}); } window.showToast('Quip copied to clipboard!'); } }; window.handleGenerateQuip = function() { var btn = document.getElementById('generate-quip-btn'); if (!btn) return; var original = btn.innerHTML; btn.innerHTML = '<span class="animate-spin material-symbols-outlined text-[18px]">progress_activity</span><span>Drafting thought...</span>'; btn.disabled = true; setTimeout(function() { btn.innerHTML = original; btn.disabled = false; window.showToast('✨ Quip generated successfully!'); }, 1000); };</script>
+
+
+
+
+
+
+
+</body></html>
