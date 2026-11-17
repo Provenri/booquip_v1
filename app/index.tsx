@@ -19,20 +19,13 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Extrapolation, interpolate, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import {
-  ArrowLeft,
   ArrowRight,
-  BarChart3,
   Bookmark,
-  Book as BookIcon,
   BookOpen,
   Check,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
   Clock3,
-  Tv,
+  LibraryBig,
   MessageCircle,
-  Search,
   Sparkles,
   UserRound,
   RotateCcw,
@@ -45,6 +38,7 @@ import { linkCurrentUserEmail, resendCurrentUserEmailChange, signInWithEmail } f
 import AccountSheet from '@/components/AccountSheet';
 import BookListCard from '@/components/BookListCard';
 import ShelfSwipeCard from '@/components/ShelfSwipeCard';
+import MaterialIcon from '@/components/MaterialIcon';
 import Pressable from '@/components/MotionPressable';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { deleteUserSwipe, getOrCreateAnonymousUser, loadUserSwipes, saveUserSwipe } from '@/lib/swipes';
@@ -121,13 +115,9 @@ function BottomTab({
       onPress={onPress}
       style={styles.bottomTab}
     >
-      <View>
+      <View style={[styles.tabIcon, active && styles.tabIconActive]}>
         <Icon color={active ? colors.brandDeep : colors.muted} size={22} strokeWidth={active ? 2.2 : 1.8} />
-        {count !== undefined && (
-          <View style={[styles.tabBadge, active && styles.tabBadgeActive]}>
-            <Text style={[styles.tabBadgeText, active && styles.tabBadgeTextActive]}>{count}</Text>
-          </View>
-        )}
+        {count !== undefined && count > 0 ? <View style={styles.tabBadge} /> : null}
       </View>
       <Text style={[styles.bottomTabLabel, active && styles.bottomTabLabelActive]}>{label}</Text>
     </Pressable>
@@ -608,9 +598,9 @@ export default function DiscoverScreen() {
     })
     .onEnd((event, success) => {
       if (!success) return;
+      indicatorsVisible.set(withTiming(0, { duration: reducedMotion ? 0 : 180 }));
       const action = getSwipeAction(event.translationX, event.translationY, event.velocityX, event.velocityY, canGoNext);
       if (!action) {
-        indicatorsVisible.set(withTiming(0, { duration: reducedMotion ? 0 : 180 }));
         resetCardPosition(event.velocityX);
         return;
       }
@@ -870,10 +860,14 @@ export default function DiscoverScreen() {
   const pageHeading = (
     <View style={styles.pageHeading}>
       <View style={styles.headingCopy}>
-        <View style={styles.headingEyebrowRow}>
-          <Text style={styles.eyebrow}>{section === 'home' ? 'YOUR LIBRARY' : section === 'book' ? 'BOOK' : 'QUIP'}</Text>
-        </View>
-        <Text style={styles.pageTitle}>{section === 'home' ? 'Your Library' : section === 'book' ? screenTitle : 'Your Quip library'}</Text>
+        {section !== 'book' || screen === 'discover' ? (
+          <View style={styles.headingEyebrowRow}>
+            <Text style={styles.eyebrow}>{section === 'home' ? 'YOUR LIBRARY' : section === 'book' ? 'BOOK DISCOVERY' : 'QUIP'}</Text>
+          </View>
+        ) : null}
+        <Text style={styles.pageTitle}>{section === 'home' ? 'Your Library' : section === 'book' && screen === 'discover'
+          ? <>Discover <Text style={styles.discoveryTitleAccent}>Books</Text></>
+          : section === 'book' ? screenTitle : 'Your Quip library'}</Text>
       </View>
     </View>
   );
@@ -892,6 +886,21 @@ export default function DiscoverScreen() {
   const shelfListHeader = (
     <View>
       {pageHeading}
+      <View accessibilityRole="tablist" accessibilityLabel="Shelf filters" style={styles.shelfFilters}>
+        {([
+          { id: 'tbr', label: 'To read', icon: 'bookmarkAdd', count: tbrIds.length },
+          { id: 'read', label: 'Finished', icon: 'check', count: readIds.length },
+          { id: 'snoozed', label: 'Snoozed', icon: 'snooze', count: frozenBooks.length },
+        ] as const).map((shelf) => (
+          <Pressable key={shelf.id} accessibilityRole="tab" accessibilityLabel={`${shelf.label}, ${shelf.count} books`}
+            accessibilityState={{ selected: screen === shelf.id }} aria-selected={screen === shelf.id} onPress={() => setScreen(shelf.id)}
+            style={[styles.shelfFilter, screen === shelf.id && styles.shelfFilterSelected]}>
+            <MaterialIcon name={shelf.icon} size={16} color={screen === shelf.id ? colors.brandDeep : colors.secondary} />
+            <Text style={[styles.shelfFilterText, screen === shelf.id && styles.shelfFilterTextSelected]}>{shelf.label}</Text>
+            <Text style={[styles.shelfFilterCount, screen === shelf.id && styles.shelfFilterTextSelected]}>{shelf.count}</Text>
+          </Pressable>
+        ))}
+      </View>
       {syncStatus === 'error' ? syncStatusIndicator : null}
       <View style={styles.pillarHeader}>
         <Text style={styles.sectionLabel}>{screen === 'tbr' ? 'SAVED FOR LATER' : screen === 'read' ? 'MARKED AS READ' : 'SNOOZED FOR LATER'}</Text>
@@ -909,7 +918,7 @@ export default function DiscoverScreen() {
           onPress={() => openShelfQuip(item.id)}
           style={({ pressed }) => [
             styles.quipToggle,
-            styles.finishedBookAction,
+            styles.shelfBookAction,
             styles.quipToggleEnabled,
             (isSaving || syncStatus === 'loading') && styles.actionDisabled,
             pressed && styles.actionPressed,
@@ -950,7 +959,7 @@ export default function DiscoverScreen() {
           accessibilityLabel={item.isActive === false ? `Remove archived ${item.title} from this shelf` : `Remove ${item.title} from this shelf and return it to discovery`}
           disabled={isSaving || syncStatus === 'loading'}
           onPress={() => handleRemoveFromShelf(item.id)}
-          style={({ pressed }) => [styles.returnBookButton, screen === 'read' && styles.finishedBookAction, isSaving && styles.actionDisabled, pressed && styles.actionPressed]}
+          style={({ pressed }) => [styles.returnBookButton, styles.shelfBookAction, isSaving && styles.actionDisabled, pressed && styles.actionPressed]}
         >
           <RotateCcw color={colors.brand} size={14} />
           <Text style={styles.returnBookButtonText}>{item.isActive === false ? 'REMOVE' : 'RETURN'}</Text>
@@ -969,7 +978,7 @@ export default function DiscoverScreen() {
       <View style={styles.emptyIcon}><BookOpen color={colors.brandMuted} size={24} /></View>
       <Text style={styles.emptyTitle}>{screen === 'snoozed' ? 'Nothing on snooze.' : 'A shelf with room to grow.'}</Text>
       <Text style={styles.emptyCopy}>{screen === 'snoozed' ? 'Books you snooze will return to discovery after their 90-day break.' : 'Books you sort in discovery will appear here.'}</Text>
-      <Pressable onPress={() => setScreen('discover')} style={styles.resetButton}>
+      <Pressable accessibilityRole="button" onPress={() => setScreen('discover')} style={styles.resetButton}>
         <Sparkles color={colors.brandDeep} size={16} />
         <Text style={styles.resetButtonText}>Discover books</Text>
       </Pressable>
@@ -1009,30 +1018,42 @@ export default function DiscoverScreen() {
         )}
 
         <View style={styles.mainArea}>
-          <View style={[styles.mobileHeader, width < 360 && styles.mobileHeaderNarrow]}>
+          <View style={styles.mobileHeader}>
             <Pressable accessibilityRole="button" accessibilityLabel="Open your library" onPress={() => setSection('home')} style={styles.brandLockup}>
-              <View style={[styles.brandMark, styles.mobileBrandMark]}><BookIcon color={colors.brandHighlight} size={20} strokeWidth={2} /></View>
-              <Text style={[styles.brandName, styles.mobileBrandName, width < 360 && styles.mobileBrandNameNarrow]}>booquip</Text>
+              <View style={[styles.brandMark, styles.mobileBrandMark]}><MaterialIcon name="book" color={colors.white} size={20} /></View>
+              <Text accessibilityRole="header" style={[styles.brandName, styles.mobileBrandName]}>
+                {section === 'quip' ? 'Quip' : section === 'home' ? 'Library' : screen === 'discover' ? 'Discover' : 'Shelf'}
+              </Text>
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={isAnonymous ? 'Guest, Link shelf' : 'Account settings'}
-              accessibilityHint={syncLabel}
-              accessibilityState={{ disabled: syncStatus === 'loading' }}
-              disabled={syncStatus === 'loading'}
-              onPress={() => setIsAccountSheetVisible(true)}
-              style={[styles.accountButton, width < 360 && styles.accountButtonNarrow, syncStatus === 'loading' && styles.navItemDisabled]}
-            >
-              <View style={[styles.syncDot, syncStatus === 'connected' && styles.syncDotConnected, syncStatus === 'error' && styles.syncDotError]} />
-              {isAnonymous ? (
-                <>
-                  <Text style={[styles.accountGuestText, width < 360 && styles.accountTextNarrow]}>Guest</Text>
-                  <Text style={styles.accountDivider}>·</Text>
-                  <Text style={[styles.accountButtonText, width < 360 && styles.accountTextNarrow]}>Link shelf</Text>
-                </>
-              ) : <Text style={styles.accountButtonText}>Account</Text>}
-              <ChevronRight color={colors.brandMuted} size={14} />
-            </Pressable>
+            {section === 'book' && screen === 'discover' ? (
+              <View style={styles.searchInputWrap}>
+                <MaterialIcon name="search" color={colors.secondary} size={18} />
+                <TextInput
+                  accessibilityLabel={`Search ${availableBooks.length} available books by title or author`}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onChangeText={setSearchQuery}
+                  onSubmitEditing={() => {
+                    if (searchResults.length === 1) {
+                      const result = searchResults[0];
+                      setSelectedPillar(result.pillar);
+                      setSelectedBookId(result.id);
+                      setSearchQuery('');
+                    }
+                  }}
+                  placeholder={`Search ${availableBooks.length} books...`}
+                  placeholderTextColor={colors.muted}
+                  returnKeyType="search"
+                  style={styles.searchInput}
+                  value={searchQuery}
+                />
+                {searchQuery.length > 0 ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel="Clear book search" onPress={() => setSearchQuery('')} style={styles.searchClear}>
+                    <X color={colors.secondary} size={16} />
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : <Text style={styles.headerSubtitle}>{section === 'quip' ? 'Shape a thought' : 'Your reading life'}</Text>}
           </View>
 
           {returnedBook ? (
@@ -1077,11 +1098,12 @@ export default function DiscoverScreen() {
             ref={discoveryScrollRef}
             onScroll={(event) => { discoveryScrollY.current = event.nativeEvent.contentOffset.y; }}
             scrollEventThrottle={16}
-            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={[styles.content, section === 'book' && styles.discoveryContent]}
             alwaysBounceVertical
             refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.brand} colors={[colors.brand]} />}
           >
-            {pageHeading}
+            {section !== 'book' && pageHeading}
             {(section !== 'book' || syncStatus === 'error' || syncStatus === 'loading') && syncStatusIndicator}
 
             {section === 'home' ? (
@@ -1102,52 +1124,15 @@ export default function DiscoverScreen() {
                   <View style={styles.hubSectionCopy}>
                     <Text style={styles.hubSectionEyebrow}>WRITE FROM WHAT YOU READ</Text>
                     <Text style={styles.hubSectionTitle}>Quip</Text>
-                    <Text style={styles.hubSectionDescription}>Explore ready-made Quips from To read and Finished, or craft your own with a Finished book.</Text>
+                    <Text style={styles.hubSectionDescription}>Explore ready-made Quips or craft your own with a book from To read or Finished.</Text>
                   </View>
                   <ArrowRight color={colors.secondary} size={18} />
                 </Pressable>
               </View>
             ) : screen === 'discover' ? (
               <>
-                <View style={styles.searchSection}>
-                  <View style={styles.searchInputWrap}>
-                    <Search color={colors.secondary} size={17} />
-                    <TextInput
-                      accessibilityLabel="Search books by title or author"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      onChangeText={setSearchQuery}
-                      onSubmitEditing={() => {
-                        if (searchResults.length === 1) {
-                          const result = searchResults[0];
-                          setSelectedPillar(result.pillar);
-                          setSelectedBookId(result.id);
-                          setSearchQuery('');
-                        }
-                      }}
-                      placeholder="Find a title or author"
-                      placeholderTextColor={colors.muted}
-                      returnKeyType="search"
-                      style={styles.searchInput}
-                      value={searchQuery}
-                    />
-                    {searchQuery.length > 0 && (
-                      <Pressable accessibilityRole="button" accessibilityLabel="Clear book search" onPress={() => setSearchQuery('')} style={styles.searchClear}>
-                        <X color={colors.secondary} size={16} />
-                      </Pressable>
-                    )}
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Surprise me with a book from any category"
-                      disabled={syncStatus === 'loading' || availableBooks.length === 0}
-                      onPress={handleSurpriseMe}
-                      style={({ pressed }) => [styles.searchSurprise, (syncStatus === 'loading' || availableBooks.length === 0) && styles.actionDisabled, pressed && styles.actionPressed]}
-                    >
-                      <Sparkles color={colors.brandDeep} size={16} />
-                      <Text style={styles.searchSurpriseText}>Surprise me</Text>
-                    </Pressable>
-                  </View>
-                  {searchQuery.trim().length > 0 && (
+                {searchQuery.trim().length > 0 && (
+                  <View style={styles.searchSection}>
                     <View style={styles.searchResults}>
                       {searchResults.length > 0 ? searchResults.map((result) => (
                         <Pressable
@@ -1165,37 +1150,48 @@ export default function DiscoverScreen() {
                           <View style={styles.searchResultText}>
                             <Text style={styles.searchResultTitle}>{result.title}</Text>
                             <Text style={styles.searchResultAuthor}>{result.author}{result.year ? ` · ${result.year}` : ''}</Text>
-                          </View>
+                            </View>
                           <Text style={styles.searchResultShelf}>{pillars.find((category) => category.id === result.pillar)?.label.toUpperCase()}</Text>
                         </Pressable>
                       )) : (
                         <Text style={styles.searchEmpty}>No available titles match that search.</Text>
                       )}
                     </View>
-                  )}
                 </View>
+                )}
 
-                <View style={[styles.categoryRow, !isWide && styles.categoryRowMobile]}>
-                  {pillars.map((pillar) => {
-                    const count = availableBooks.filter((availableBook) => availableBook.pillar === pillar.id).length;
-                    const selected = selectedPillar === pillar.id;
-                    const CategoryIcon = pillar.id === 'screen' ? Tv : pillar.id === 'charts' ? BarChart3 : BookOpen;
-                    return <Pressable key={pillar.id} accessibilityRole="button" accessibilityState={{ selected }}
-                      disabled={syncStatus === 'loading'} onPress={() => selectPillar(pillar.id)}
-                      style={({ pressed }) => [styles.categoryButton, !isWide && styles.categoryButtonMobile, width < 360 && styles.categoryButtonNarrow, selected && styles.categoryButtonSelected, syncStatus === 'loading' && styles.actionDisabled, pressed && styles.actionPressed]}>
-                      <View style={[styles.categoryIcon, { backgroundColor: `${pillar.color}15` }]}><CategoryIcon color={pillar.color} size={18} /></View>
-                      <View style={styles.categoryButtonCopy}>
+                <View style={styles.categoryRow}>
+                  <View style={styles.categoryOptions}>
+                    {pillars.map((pillar) => {
+                      const count = availableBooks.filter((availableBook) => availableBook.pillar === pillar.id).length;
+                      const selected = selectedPillar === pillar.id;
+                      return <Pressable key={pillar.id} accessibilityRole="button"
+                        accessibilityLabel={`${pillar.label}, ${count} available`} accessibilityState={{ selected, disabled: syncStatus === 'loading' }} aria-pressed={selected}
+                        disabled={syncStatus === 'loading'} onPress={() => selectPillar(pillar.id)}
+                        style={[styles.categoryButton, selected && styles.categoryButtonSelected, syncStatus === 'loading' && styles.actionDisabled]}>
+                        <MaterialIcon name={pillar.id === 'screen' ? 'screen' : pillar.id === 'charts' ? 'chart' : 'book'}
+                          color={selected ? colors.white : colors.secondary} size={15} />
                         <Text style={[styles.categoryButtonTitle, selected && styles.categoryButtonTitleSelected]}>{pillar.label}</Text>
-                        <Text style={[styles.categoryButtonCount, selected && styles.categoryButtonCountSelected]}>
-                          {count} avail.
-                        </Text>
-                      </View>
-                    </Pressable>;
-                  })}
+                      </Pressable>;
+                    })}
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Surprise me with a book from any category"
+                    accessibilityState={{ disabled: syncStatus === 'loading' || availableBooks.length === 0 }}
+                    disabled={syncStatus === 'loading' || availableBooks.length === 0}
+                    onPress={handleSurpriseMe}
+                    style={({ pressed }) => [styles.searchSurprise, (syncStatus === 'loading' || availableBooks.length === 0) && styles.actionDisabled, pressed && styles.actionPressed]}
+                  >
+                    <MaterialIcon name="sparkle" color="#9b4e29" size={22} />
+                  </Pressable>
                 </View>
-                <Animated.View pointerEvents="none" style={[styles.doubleTapHintRow, indicatorStyle]}>
-                  <Text numberOfLines={1} style={styles.doubleTapHintText}>Double tap if you&apos;ve read this book</Text>
-                </Animated.View>
+                <View style={styles.gestureGuide}>
+                  <View style={styles.gestureGuideItem}><MaterialIcon name="swipeLeft" size={14} color={colors.gold} /><Text style={styles.gestureGuideText}>Swipe left for next</Text></View>
+                  <View style={styles.gestureGuideItem}><MaterialIcon name="bookmarkAdd" size={14} /><Text style={styles.gestureGuideText}>Swipe right to save</Text></View>
+                  <View style={styles.gestureGuideItem}><MaterialIcon name="touch" size={14} color={colors.secondary} /><Text style={styles.gestureGuideText}>2× tap finished</Text></View>
+                </View>
+                {book ? <Text style={styles.deckEyebrow}>{currentPillar?.label.toUpperCase()} BOOK · {categoryBooks.findIndex((item) => item.id === book.id) + 1} OF {categoryBooks.length}</Text> : null}
 
                 {book ? (
                   <View style={styles.bookFeature}>
@@ -1238,43 +1234,46 @@ export default function DiscoverScreen() {
                                   />
                                 )}
                               </View>
+                              <Animated.View
+                                pointerEvents="none"
+                                accessible={false}
+                                accessibilityElementsHidden
+                                importantForAccessibility="no-hide-descendants"
+                                aria-hidden
+                                style={[styles.indicatorOverlay, indicatorStyle]}
+                              >
+                                <View style={[styles.directionIndicator, !canGoNext && styles.actionDisabled]}>
+                                  <MaterialIcon name="left" color={colors.brandDeep} size={24} />
+                                </View>
+                                <View style={styles.directionIndicator}>
+                                  <MaterialIcon name="right" color={colors.brandDeep} size={24} />
+                                </View>
+                              </Animated.View>
                             </View>
-                            <Animated.View
-                              pointerEvents="none"
-                              accessible={false}
-                              accessibilityElementsHidden
-                              importantForAccessibility="no-hide-descendants"
-                              aria-hidden
-                              style={[styles.indicatorOverlay, indicatorStyle]}
-                            >
-                              <View style={[styles.directionIndicator, !canGoNext && styles.actionDisabled]}>
-                                <ArrowLeft color={colors.brandMuted} size={16} />
-                                <Text style={styles.indicatorText}>Next book</Text>
-                              </View>
-                              <View style={styles.directionIndicator}>
-                                <ArrowRight color={colors.brandMuted} size={16} />
-                                <Text style={styles.indicatorText}>Move to shelf</Text>
-                              </View>
-                            </Animated.View>
                           </View>
                           <View style={styles.bookHeaderText}>
                             <Text style={styles.bookTitle}>{book.title}</Text>
-                            <Text style={styles.bookAuthor}>By {book.author}</Text>
+                            <Text style={styles.bookAuthor}>{book.author}{book.year ? ` · ${book.year}` : ''}</Text>
                           </View>
                         </Animated.View>
                       </GestureDetector>
                     </View>
                     <View style={styles.bookInfo}>
                       <Animated.View style={contentStyle}>
-                          {tagline ? <Text style={styles.bookTagline}>“{tagline}”</Text> : null}
-                          {book.keywords?.length ? (
-                            <View style={styles.keywordRow}>
-                              {book.keywords.map((keyword) => <Text key={keyword} style={styles.keyword}>#{keyword.replace(/\s+/g, '')}</Text>)}
-                            </View>
-                          ) : <Text style={styles.keywordPending}>Keywords are not available yet.</Text>}
+                          <View style={styles.shortTake}>
+                            {tagline ? <View style={styles.taglineQuote}>
+                              <MaterialIcon name="quote" color={colors.gold} size={20} />
+                              <Text style={styles.bookTagline}>{tagline}</Text>
+                            </View> : null}
+                            {book.keywords?.length ? (
+                              <View style={styles.keywordRow}>
+                                {book.keywords.map((keyword) => <Text key={keyword} style={styles.keyword}>#{keyword.replace(/\s+/g, '')}</Text>)}
+                              </View>
+                            ) : <Text style={styles.keywordPending}>Keywords are not available yet.</Text>}
+                          </View>
                           {onRampText && isOnRampVisible ? (
                             <View ref={onRampRef} style={styles.onRampSection}>
-                              <Text style={styles.noteLabel}>30-SECOND READ · AI-GENERATED FROM THE SUMMARY</Text>
+                              <Text style={styles.noteLabel}>30 SECONDS READ</Text>
                               <Text accessibilityLiveRegion="polite" style={styles.onRampText}>{onRampText}</Text>
                             </View>
                           ) : null}
@@ -1298,29 +1297,25 @@ export default function DiscoverScreen() {
                             </View>
                           )}
                           {book.pillar === 'screen' ? <View style={styles.adaptationSection}>
-                            <Pressable
-                              accessibilityRole="button"
-                              accessibilityState={{ expanded: adaptationsExpanded }}
-                              accessibilityLabel={adaptationsExpanded ? 'Hide screen adaptations' : 'Show screen adaptations'}
-                              onPress={() => setAdaptationsExpanded((expanded) => !expanded)}
-                              style={styles.adaptationHeader}
-                            >
-                              <Tv color={colors.secondary} size={14} />
-                              <Text style={styles.noteLabel}>{book.adaptations?.[0]?.format.toUpperCase() ?? 'ON SCREEN'}</Text>
-                              <Text style={styles.adaptationSummary} numberOfLines={1}>
-                                {book.adaptations?.length
-                                  ? `${book.adaptations[0].title}${book.adaptations[0].releaseYear ? ` (${book.adaptations[0].releaseYear})` : ''}`
-                                  : 'No details yet'}
-                              </Text>
-                              {book.adaptations?.[0]?.tmdbId ? <Text style={styles.tmdbBadge}>TMDb</Text> : null}
-                              {adaptationsExpanded ? <ChevronUp color={colors.brandDeep} size={16} /> : <ChevronDown color={colors.brandDeep} size={16} />}
-                            </Pressable>
-                            {adaptationsExpanded && (book.adaptations?.length ? book.adaptations.map((adaptation) => (
+                            <View style={styles.adaptationHeader}>
+                              <MaterialIcon name="movie" size={18} color={colors.secondary} />
+                              <View style={styles.adaptationHeaderSpace} />
+                              {(book.adaptations?.length ?? 0) > 1 ? <Pressable
+                                accessibilityRole="button"
+                                accessibilityState={{ expanded: adaptationsExpanded }}
+                                accessibilityLabel={adaptationsExpanded ? 'Hide additional screen adaptations' : 'Show additional screen adaptations'}
+                                onPress={() => setAdaptationsExpanded((expanded) => !expanded)}
+                                style={styles.adaptationToggle}
+                              >
+                                <MaterialIcon name={adaptationsExpanded ? 'up' : 'down'} size={22} />
+                              </Pressable> : null}
+                            </View>
+                            {book.adaptations?.length ? book.adaptations.slice(0, adaptationsExpanded ? undefined : 1).map((adaptation) => (
                               <View key={`${adaptation.title}-${adaptation.releaseYear}`} style={styles.adaptationRow}>
                                 <View style={styles.adaptationCopy}>
                                   <Text style={styles.adaptationTitle}>{adaptation.title}</Text>
                                   <Text style={styles.adaptationMeta}>
-                                    {adaptation.format.toUpperCase()} · {adaptation.releaseYear}{adaptation.platform ? ` · ${adaptation.platform}` : ''}
+                                    {adaptation.format.toUpperCase()}{adaptation.releaseYear ? ` · ${adaptation.releaseYear}` : ''}{adaptation.platform ? ` · ${adaptation.platform}` : ''}
                                   </Text>
                                   {adaptation.castMembers?.length ? (
                                     <Text style={styles.adaptationCast}>CAST · {adaptation.castMembers.join(', ')}</Text>
@@ -1339,8 +1334,8 @@ export default function DiscoverScreen() {
                               </View>
                             )) : (
                               <Text style={styles.adaptationEmpty}>No adaptation details curated yet.</Text>
-                            ))}
-                            {adaptationsExpanded && book.adaptations?.some((adaptation) => adaptation.tmdbId) ? (
+                            )}
+                            {(adaptationsExpanded ? book.adaptations : book.adaptations?.slice(0, 1))?.some((adaptation) => adaptation.tmdbId) ? (
                               <Text style={styles.tmdbAttribution}>This product uses the TMDB API but is not endorsed or certified by TMDB.</Text>
                             ) : null}
                           </View> : null}
@@ -1356,7 +1351,7 @@ export default function DiscoverScreen() {
                             >
                               {pendingBookAction === 'freeze'
                                 ? <ActivityIndicator size="small" color={colors.brandMuted} />
-                                : <Clock3 color={colors.brandMuted} size={16} />}
+                                : <MaterialIcon name="snooze" color={colors.brandDeep} size={18} />}
                               <Text style={styles.snoozeActionButtonText}>{pendingBookAction === 'freeze' ? 'Waiting…' : 'Snooze'}</Text>
                             </Pressable>
                             <Pressable
@@ -1370,27 +1365,20 @@ export default function DiscoverScreen() {
                               aria-busy={isOnRampLoading}
                               disabled={isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning}
                               onPress={handleOnRampToggle}
-                              style={({ pressed }) => [styles.onRampButton, (isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning) && styles.actionDisabled, pressed && styles.actionPressed]}
+                              style={({ pressed }) => [styles.onRampButton, (isOnRampLoading || syncStatus === 'loading' || isSaving || isTransitioning) && styles.actionDisabled, pressed && styles.onRampPressed]}
                             >
                               {isOnRampLoading
                                 ? <ActivityIndicator size="small" color={colors.brandContrast} />
-                                : <Sparkles color={colors.brandContrast} size={14} />}
+                                : <MaterialIcon name="sparkle" color={colors.brandContrast} size={16} />}
                               <Text style={styles.onRampButtonText}>{isOnRampLoading ? 'Loading…' : '30s read'}</Text>
                             </Pressable>
-                            <Pressable
-                              accessibilityRole="button"
-                              accessibilityLabel={pendingBookAction === 'read' ? 'Waiting to mark this book as read' : 'Already read'}
-                              accessibilityState={{ busy: pendingBookAction === 'read', disabled: syncStatus === 'loading' || isSaving || isTransitioning }}
-                              disabled={syncStatus === 'loading' || isSaving || isTransitioning}
-                              onPress={() => void handleAction('read')}
-                              style={({ pressed }) => [styles.readActionButton, (syncStatus === 'loading' || isSaving || isTransitioning) && styles.actionDisabled, pressed && styles.actionPressed]}
-                            >
-                              {pendingBookAction === 'read'
-                                ? <ActivityIndicator size="small" color={colors.brand} />
-                                : <Check color={colors.brand} size={16} />}
-                              <Text style={styles.readActionButtonText}>{pendingBookAction === 'read' ? 'Waiting…' : 'Already read'}</Text>
-                            </Pressable>
                           </View>
+                          {pendingBookAction === 'read' ? (
+                            <View accessibilityLiveRegion="polite" style={styles.readStatus}>
+                              <ActivityIndicator size="small" color={colors.brand} />
+                              <Text style={styles.readStatusText}>Marking as finished…</Text>
+                            </View>
+                          ) : null}
                     </View>
                   </View>
                 ) : selectedPillar ? (
@@ -1421,14 +1409,14 @@ export default function DiscoverScreen() {
             <View style={styles.bottomBar} accessibilityRole="tablist">
               <BottomTab
                 label="Book"
-                active={section === 'book' && screen === 'discover'}
+                active={!isAccountSheetVisible && section === 'book' && screen === 'discover'}
                 onPress={() => { setSection('book'); setScreen('discover'); }}
-                icon={BookIcon}
+                icon={BookOpen}
               />
-              <BottomTab label="Quip" active={section === 'quip'} onPress={() => setSection('quip')} icon={MessageCircle} />
-              <BottomTab label="To read" count={tbrIds.length} active={section === 'book' && screen === 'tbr'} onPress={() => { setSection('book'); setScreen('tbr'); }} icon={Bookmark} />
-              <BottomTab label="Finished" count={readIds.length} active={section === 'book' && screen === 'read'} onPress={() => { setSection('book'); setScreen('read'); }} icon={Check} />
-              <BottomTab label="Snoozed" count={frozenBooks.length} active={section === 'book' && screen === 'snoozed'} onPress={() => { setSection('book'); setScreen('snoozed'); }} icon={Clock3} />
+              <BottomTab label="Quip" active={!isAccountSheetVisible && section === 'quip'} onPress={() => setSection('quip')} icon={MessageCircle} />
+              <BottomTab label="Shelf" count={tbrIds.length + readIds.length + frozenBooks.length}
+                active={!isAccountSheetVisible && section === 'book' && screen !== 'discover'} onPress={() => { setSection('book'); setScreen(screen === 'discover' ? 'tbr' : screen); }} icon={LibraryBig} />
+              <BottomTab label="Account" active={isAccountSheetVisible} onPress={() => setIsAccountSheetVisible(true)} icon={UserRound} />
             </View>
           )}
         </View>
@@ -1463,10 +1451,9 @@ const styles = StyleSheet.create({
   sidebar: { width: 238, backgroundColor: colors.forest, paddingHorizontal: spacing.xl, paddingTop: spacing.xxl, paddingBottom: 22 },
   brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   brandMark: { width: 36, height: 36, borderRadius: 12, backgroundColor: colors.brandHighlight, alignItems: 'center', justifyContent: 'center' },
-  brandName: { color: colors.surfaceWarm, fontSize: type.brand, fontWeight: '700', letterSpacing: -0.5 },
-  mobileBrandMark: { backgroundColor: colors.forest },
-  mobileBrandName: { color: colors.inkStrong },
-  mobileBrandNameNarrow: { fontSize: 18 },
+  brandName: { color: colors.surfaceWarm, fontSize: type.brand, fontFamily: 'Newsreader_700Bold', letterSpacing: -0.5 },
+  mobileBrandMark: { backgroundColor: colors.brandDeep },
+  mobileBrandName: { color: colors.inkStrong, fontSize: 22 },
   sidebarEyebrow: { color: colors.navMuted, fontSize: type.caption, fontWeight: '700', letterSpacing: 1.4, marginTop: 56, marginBottom: 15 },
   navItem: { height: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radii.md, marginBottom: 5 },
   navItemCompact: { flex: 1, justifyContent: 'center', gap: 5, paddingHorizontal: spacing.xxs, marginBottom: 0, borderRadius: 14 },
@@ -1481,22 +1468,21 @@ const styles = StyleSheet.create({
   sidebarFooterText: { color: colors.borderStrong, fontSize: type.footnote, lineHeight: 18, marginTop: spacing.xs, maxWidth: 170 },
   mainArea: { flex: 1, minWidth: 0 },
   discoveryViewport: { flex: 1, minHeight: 0 },
-  mobileHeader: { minHeight: 76, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.lg, backgroundColor: colors.page },
-  mobileHeaderNarrow: { paddingHorizontal: spacing.md },
-  accountButton: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, borderWidth: 1, borderColor: '#cbded5', borderRadius: 22, backgroundColor: colors.surfaceWarm, shadowColor: colors.shadow, shadowOpacity: 0.06, shadowRadius: 3, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
-  accountGuestText: { color: colors.inkStrong, fontSize: type.bodySmall, fontWeight: '600' },
-  accountDivider: { color: colors.brandMuted, fontSize: type.bodySmall },
-  accountButtonText: { color: colors.brandDeep, fontSize: type.bodySmall, fontWeight: '600' },
-  accountButtonNarrow: { gap: 3, paddingHorizontal: 6 },
-  accountTextNarrow: { fontSize: type.caption },
-  bottomBar: { minHeight: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 8, borderTopWidth: 1, borderTopColor: colors.borderStrong, backgroundColor: colors.surfaceWarm },
-  bottomTab: { flex: 1, minWidth: 0, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, borderRadius: 15 },
-  bottomTabLabel: { color: colors.muted, fontSize: type.caption, fontWeight: '600' },
+  mobileHeader: { minHeight: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceWarm },
+  headerSubtitle: { flexShrink: 1, color: colors.inkStrong, fontFamily: 'Newsreader_400Regular', fontSize: 17, textAlign: 'right' },
+  bottomBar: { minHeight: 64, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 8, borderTopWidth: 1, borderTopColor: colors.borderStrong, backgroundColor: colors.surfaceWarm },
+  bottomTab: { flex: 1, minWidth: 0, minHeight: 64, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  bottomTabLabel: { color: colors.secondary, fontSize: 11, fontFamily: 'PublicSans_600SemiBold' },
   bottomTabLabelActive: { color: colors.brandDeep, fontWeight: '700' },
-  tabBadge: { position: 'absolute', right: -9, top: -6, minWidth: 15, height: 15, paddingHorizontal: 3, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.border },
-  tabBadgeActive: { backgroundColor: colors.brand },
-  tabBadgeText: { color: colors.brandDeep, fontSize: type.label, fontWeight: '700' },
-  tabBadgeTextActive: { color: colors.white },
+  tabIcon: { minWidth: 48, minHeight: 28, alignItems: 'center', justifyContent: 'center', borderRadius: radii.pill },
+  tabIconActive: { backgroundColor: colors.brandSoft },
+  tabBadge: { position: 'absolute', right: 9, top: 0, width: 7, height: 7, borderRadius: 4, backgroundColor: colors.brandDeep },
+  shelfFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, padding: 4, marginBottom: spacing.lg, borderRadius: radii.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceControl },
+  shelfFilter: { flexGrow: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: spacing.xs, borderRadius: 10 },
+  shelfFilterSelected: { backgroundColor: colors.surface },
+  shelfFilterText: { color: colors.secondary, fontSize: 12, fontFamily: 'PublicSans_600SemiBold' },
+  shelfFilterTextSelected: { color: colors.brandDeep, fontFamily: 'PublicSans_700Bold' },
+  shelfFilterCount: { color: colors.secondary, fontSize: 11, fontFamily: 'PublicSans_600SemiBold', fontVariant: ['tabular-nums'] },
   hubSections: { maxWidth: 860, width: '100%', alignSelf: 'center', gap: 14 },
   hubSection: { minHeight: 132, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: 18, paddingVertical: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: 22, backgroundColor: colors.surface, shadowColor: colors.forest, shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 1 },
   hubSectionPressed: { backgroundColor: colors.surfaceMuted, transform: [{ scale: 0.99 }] },
@@ -1507,38 +1493,33 @@ const styles = StyleSheet.create({
   hubSectionDescription: { color: colors.secondary, fontSize: type.bodyMedium, lineHeight: 19, marginTop: 5, maxWidth: 450 },
   contentList: { flex: 1 },
   content: pageLayout.content,
+  discoveryContent: { maxWidth: 544 },
   pageHeading: pageLayout.heading,
   headingCopy: { minWidth: 0, width: '100%' },
   headingEyebrowRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs },
-  syncStatusRow: { minHeight: 34, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: spacing.xs, alignSelf: 'flex-start', marginTop: -10, marginBottom: 22, paddingHorizontal: 11, borderRadius: 18, backgroundColor: colors.brandPale },
+  syncStatusRow: { minHeight: 34, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: spacing.xs, alignSelf: 'flex-start', marginBottom: spacing.sm, paddingHorizontal: 11, borderRadius: 18, backgroundColor: colors.brandPale },
   syncDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.quiet },
   syncDotConnected: { backgroundColor: colors.brand },
   syncDotError: { backgroundColor: colors.danger },
   syncStatusText: { flexShrink: 1, color: colors.brandMuted, fontSize: type.bodySmall, fontWeight: '600' },
   eyebrow: pageLayout.eyebrow,
   pageTitle: pageLayout.title,
+  discoveryTitleAccent: { color: colors.brand, fontFamily: 'Newsreader_400Regular_Italic' },
   pillarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
   sectionLabel: { color: colors.secondary, fontSize: type.caption, fontWeight: '700', letterSpacing: 0.65 },
   stackCount: { color: colors.quiet, fontSize: type.label, fontWeight: '700', letterSpacing: 0.8 },
-  categoryRow: { maxWidth: 860, width: '100%', alignSelf: 'center', flexDirection: 'row', gap: spacing.xs, marginBottom: 4 },
-  categoryButton: { flex: 1, minWidth: 0, minHeight: 64, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.lg, backgroundColor: colors.surfaceWarm },
-  categoryButtonMobile: { minHeight: 54, paddingHorizontal: 6 },
-  categoryRowMobile: { flexWrap: 'nowrap' },
-  categoryButtonNarrow: { flexDirection: 'column', gap: 4 },
-  categoryButtonSelected: { borderWidth: 2, borderColor: '#abcbbd', shadowColor: colors.shadow, shadowOpacity: 0.05, shadowRadius: 3, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
-  categoryIcon: { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  categoryButtonCopy: { minWidth: 0, flexShrink: 1 },
-  categoryButtonTitle: { color: colors.body, fontSize: type.footnote, lineHeight: 16, fontWeight: '700' },
-  categoryButtonTitleSelected: { color: colors.inkStrong },
-  categoryButtonCount: { color: colors.secondary, fontSize: type.caption, fontWeight: '600', marginTop: 2 },
-  categoryButtonCountSelected: { color: colors.brand },
-  searchSection: { maxWidth: 860, width: '100%', alignSelf: 'center', marginBottom: 22, zIndex: 2 },
-  searchInputWrap: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, borderWidth: 1, borderColor: colors.secondary, borderRadius: 30, backgroundColor: colors.white, paddingLeft: 15, paddingRight: 5, shadowColor: colors.shadow, shadowOpacity: 0.04, shadowRadius: 2, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
-  searchSurprise: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 10, borderWidth: 1, borderColor: '#4bdfa6', borderRadius: 24, backgroundColor: '#d6fbed' },
-  searchSurpriseText: { color: colors.brandDeep, fontSize: type.bodySmall, fontWeight: '700' },
-  searchInput: { flex: 1, minWidth: 0, height: 44, color: colors.ink, fontSize: 14 },
+  categoryRow: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.xs },
+  categoryOptions: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  categoryButton: { flexGrow: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 7, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.pill, backgroundColor: colors.surface },
+  categoryButtonSelected: { borderColor: colors.brandDeep, backgroundColor: colors.brandDeep },
+  categoryButtonTitle: { color: colors.body, fontSize: 12, fontFamily: 'PublicSans_600SemiBold' },
+  categoryButtonTitleSelected: { color: colors.white },
+  searchSection: { width: '100%', alignSelf: 'center', marginBottom: spacing.sm, zIndex: 2 },
+  searchInputWrap: { flex: 1, maxWidth: 360, minWidth: 0, minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.pill, backgroundColor: colors.surface, paddingLeft: 10, paddingRight: 4 },
+  searchSurprise: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.pill, backgroundColor: colors.surface },
+  searchInput: { flex: 1, minWidth: 0, height: 38, paddingVertical: 0, color: colors.ink, fontSize: 12, fontFamily: 'PublicSans_400Regular' },
   searchClear: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
-  searchResults: { borderWidth: 1, borderColor: colors.borderStrong, borderTopWidth: 0, borderBottomLeftRadius: 5, borderBottomRightRadius: 5, backgroundColor: colors.surface, overflow: 'hidden' },
+  searchResults: { marginTop: spacing.xs, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 8, backgroundColor: colors.surface, overflow: 'hidden' },
   searchResult: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: 13, borderTopWidth: 1, borderTopColor: colors.border },
   searchResultPressed: { backgroundColor: colors.surfaceMuted },
   searchSwatch: { width: 4, height: 34, borderRadius: 2 },
@@ -1553,55 +1534,59 @@ const styles = StyleSheet.create({
   bookChartSignalType: { color: colors.blueMuted, fontSize: type.tiny, lineHeight: 12, fontWeight: '800' },
   bookChartSignalTrend: { color: colors.brand },
   bookChartSignalMeta: { color: colors.muted, fontSize: type.tiny, lineHeight: 12, marginTop: 1 },
-  bookFeature: { maxWidth: 560, width: '100%', alignSelf: 'center' },
-  doubleTapHintRow: { height: 16, alignItems: 'center', justifyContent: 'center' },
-  doubleTapHintText: { color: colors.brandMuted, fontSize: type.caption, fontWeight: '700' },
+  gestureGuide: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 6, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 10, backgroundColor: colors.surfaceControl },
+  gestureGuideItem: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  gestureGuideText: { flexShrink: 1, color: colors.secondary, fontFamily: 'PublicSans_600SemiBold', fontSize: 9, lineHeight: 13, textAlign: 'center' },
+  deckEyebrow: { color: colors.brandDeep, fontSize: 11, fontFamily: 'PublicSans_700Bold', fontVariant: ['tabular-nums'], letterSpacing: 1, textAlign: 'center', marginVertical: spacing.sm },
+  bookFeature: { width: '100%', alignSelf: 'center', paddingHorizontal: spacing.md, paddingTop: spacing.md, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 20, backgroundColor: colors.surface, shadowColor: colors.shadow, shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
   bookGestureArea: { position: 'relative' },
-  bookHeader: { width: '100%', alignSelf: 'center', alignItems: 'center', paddingTop: spacing.md, paddingBottom: spacing.xs },
-  bookHeaderText: { alignItems: 'center', width: '75%', maxWidth: 360 },
+  bookHeader: { width: '100%', alignSelf: 'center', alignItems: 'center', paddingBottom: spacing.xs },
+  bookHeaderText: { alignItems: 'center', width: '100%' },
   coverRow: { width: '100%', alignItems: 'center' },
-  coverShadow: { width: '60%', maxWidth: 240, shadowColor: colors.shadow, shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
-  coverFrame: { width: '100%', aspectRatio: 2 / 3, position: 'relative', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderRadius: radii.md },
+  coverShadow: { width: '64%', maxWidth: 210, position: 'relative', shadowColor: colors.shadow, shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  coverFrame: { width: '100%', aspectRatio: 1 / 1.55, position: 'relative', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   coverFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, gap: 6 },
   coverFallbackTitle: { color: colors.white, fontSize: type.footnote, fontWeight: '700', textAlign: 'center', lineHeight: 16 },
   coverFallbackAuthor: { color: colors.white, fontSize: type.label, textAlign: 'center' },
   coverImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
   bookInfo: { minWidth: 0, paddingBottom: spacing.md },
-  bookTitle: { color: colors.inkStrong, fontFamily: 'Newsreader_700Bold', fontSize: 26, lineHeight: 30, marginTop: spacing.md, textAlign: 'center' },
-  bookAuthor: { color: colors.brandMuted, fontSize: type.bodyMedium, fontWeight: '600', marginTop: 5, textAlign: 'center' },
+  bookTitle: { color: colors.inkStrong, fontFamily: 'Newsreader_700Bold', fontSize: 32, lineHeight: 38, marginTop: spacing.sm, textAlign: 'center' },
+  bookAuthor: { color: colors.secondary, fontFamily: 'PublicSans_400Regular', fontSize: 14, lineHeight: 21, marginTop: 2, textAlign: 'center' },
   noteLabel: { color: colors.muted, fontSize: type.label, fontWeight: '700', letterSpacing: 1.1 },
-  bookTagline: { color: colors.inkStrong, fontFamily: 'Newsreader_700Bold', fontSize: type.bodyLarge, fontStyle: 'italic', fontWeight: '700', lineHeight: 22, textAlign: 'center', marginTop: spacing.xs },
-  keywordRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.xs, marginTop: spacing.xs },
-  keyword: { color: colors.brandMuted, fontSize: type.caption, fontWeight: '700', paddingHorizontal: spacing.sm, paddingVertical: spacing.xxs, borderRadius: radii.pill, backgroundColor: colors.goldSoft },
+  shortTake: { padding: 14, marginTop: spacing.xs, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceWarm },
+  taglineQuote: { paddingLeft: spacing.sm, borderLeftWidth: 2, borderLeftColor: colors.gold },
+  bookTagline: { color: colors.body, fontFamily: 'Newsreader_400Regular_Italic', fontSize: 18, lineHeight: 24 },
+  keywordRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.xs },
+  keyword: { color: colors.brandDeep, fontSize: 11, fontFamily: 'PublicSans_600SemiBold', paddingHorizontal: spacing.xs, paddingVertical: 3, borderRadius: radii.pill, backgroundColor: colors.brandSoft, overflow: 'hidden' },
   keywordPending: { color: colors.secondary, fontSize: type.caption, marginTop: spacing.xs, textAlign: 'center' },
-  bookActionButtons: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.md },
-  readActionButton: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: spacing.xxs, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.md, backgroundColor: colors.surfaceWarm },
-  readActionButtonText: { color: colors.brandDeep, fontSize: type.bodySmall, fontWeight: '700' },
-  snoozeActionButton: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: spacing.xxs, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.md, backgroundColor: colors.surfaceWarm },
-  snoozeActionButtonText: { color: colors.brandDeep, fontSize: type.bodySmall, fontWeight: '700' },
-  adaptationSection: { marginTop: spacing.md, paddingHorizontal: spacing.sm, paddingVertical: 4, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radii.md, backgroundColor: colors.page },
-  adaptationHeader: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  adaptationSummary: { flex: 1, color: colors.inkStrong, fontSize: type.bodyMedium, fontWeight: '600' },
+  bookActionButtons: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.lg },
+  readStatus: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, marginTop: spacing.sm },
+  readStatusText: { color: colors.brandDeep, fontSize: 12, fontFamily: 'PublicSans_600SemiBold' },
+  snoozeActionButton: { minHeight: 46, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: spacing.xs, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 12, backgroundColor: colors.surfaceControl },
+  snoozeActionButtonText: { color: colors.secondary, fontSize: 12, fontFamily: 'PublicSans_600SemiBold' },
+  adaptationSection: { marginTop: spacing.sm, padding: 14, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 12, backgroundColor: colors.surface },
+  adaptationHeader: { minHeight: 24, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  adaptationHeaderSpace: { flex: 1 },
+  adaptationToggle: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   adaptationRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 4 },
   adaptationCopy: { flex: 1, minWidth: 0 },
-  adaptationTitle: { color: colors.body, fontSize: type.footnote, lineHeight: 17, fontWeight: '600' },
-  adaptationMeta: { color: colors.muted, fontSize: type.label, lineHeight: 14, marginTop: 2 },
-  adaptationCast: { color: colors.secondary, fontSize: type.label, lineHeight: 14, marginTop: 3 },
-  adaptationEmpty: { color: colors.muted, fontSize: type.caption, lineHeight: 15 },
+  adaptationTitle: { color: colors.inkStrong, fontFamily: 'Newsreader_700Bold', fontSize: 16, lineHeight: 21, marginTop: 6 },
+  adaptationMeta: { color: colors.secondary, fontFamily: 'PublicSans_600SemiBold', fontSize: 10, lineHeight: 15, marginTop: 2 },
+  adaptationCast: { color: colors.secondary, fontFamily: 'PublicSans_400Regular', fontSize: 11, lineHeight: 17, marginTop: 5 },
+  adaptationEmpty: { color: colors.secondary, fontSize: type.caption, lineHeight: 15, marginTop: 8 },
   tmdbLink: { minHeight: 28, justifyContent: 'center', paddingHorizontal: 6 },
   tmdbLinkText: { color: colors.brandMuted, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.4 },
-  tmdbBadge: { color: colors.brandDeep, fontSize: type.caption, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: colors.brandSoft },
   tmdbAttribution: { color: colors.quiet, fontSize: type.micro, lineHeight: 10, marginTop: 8 },
   onRampSection: { marginTop: spacing.lg, paddingTop: 13, borderTopWidth: 1, borderTopColor: colors.border },
-  onRampButton: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: spacing.xxs, borderRadius: radii.md, backgroundColor: colors.brandStrong },
-  onRampButtonText: { color: colors.brandContrast, fontSize: type.bodySmall, fontWeight: '700' },
+  onRampButton: { minHeight: 46, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: spacing.xs, borderRadius: 12, backgroundColor: colors.brandDeep },
+  onRampButtonText: { color: colors.brandContrast, fontSize: 12, fontFamily: 'PublicSans_700Bold', textTransform: 'uppercase', letterSpacing: 0.5 },
+  onRampPressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
   onRampText: { color: colors.body, fontSize: type.bodyMedium, lineHeight: 20, marginTop: 10 },
   onRampError: { color: colors.danger, fontSize: type.bodySmall, lineHeight: 16, marginTop: 8 },
   actionDisabled: { opacity: 0.55 },
   actionPressed: { backgroundColor: colors.brandSoft, transform: [{ scale: 0.98 }] },
-  indicatorOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  directionIndicator: { width: '18%', maxWidth: 120, minHeight: 36, alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: spacing.xxs, paddingVertical: spacing.xs, borderRadius: radii.md, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceWarm },
-  indicatorText: { color: colors.body, fontSize: type.bodySmall, fontWeight: '700', textAlign: 'center', flexShrink: 1 },
+  indicatorOverlay: { position: 'absolute', top: 0, bottom: 0, left: -18, right: -18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  directionIndicator: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: colors.white, shadowColor: colors.shadow, shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
   emptyState: { maxWidth: 860, width: '100%', minHeight: 300, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', padding: 30, borderWidth: 1, borderColor: colors.border, borderRadius: radii.lg, backgroundColor: colors.surface },
   emptyIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
   emptyTitle: { color: colors.inkStrong, fontSize: type.heading, fontWeight: '600', textAlign: 'center' },
@@ -1615,7 +1600,7 @@ const styles = StyleSheet.create({
   wakeButtonText: { color: colors.goldDark, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.4 },
   returnBookButton: { minWidth: 58, height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxs, paddingHorizontal: 6, borderRadius: 4, backgroundColor: colors.brandSoft },
   returnBookButtonText: { color: colors.brandStrong, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.4 },
-  finishedBookAction: { alignSelf: 'stretch' },
+  shelfBookAction: { alignSelf: 'stretch', height: 34 },
   quipToggle: { minWidth: 82, height: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 7, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 4, backgroundColor: colors.surfaceMuted },
   quipToggleEnabled: { borderColor: colors.brandSoft, backgroundColor: colors.brandSoft },
   quipToggleLabel: { color: colors.secondary, fontSize: type.tiny, fontWeight: '800', letterSpacing: 0.35 },

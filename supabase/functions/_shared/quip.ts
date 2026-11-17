@@ -34,6 +34,7 @@ export type QuipRelevanceLevel = keyof typeof QUIP_RELEVANCE_LABELS;
 export type QuipBookRelevance = { bookId: string; level: QuipRelevanceLevel };
 export type QuipResult = { reply: string; relevance: QuipBookRelevance[] };
 export const QUIP_IDEA_LIMIT = 200;
+export const QUIP_SEED_LIMIT = 280;
 export const QUIP_CONCISE_LIMIT = 280;
 export const QUIP_REPLY_LIMIT = 280;
 

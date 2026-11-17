@@ -9,12 +9,15 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "dev": "expo start --dev-client",
+    "dev:tunnel": "expo start --dev-client --tunnel",
     "typecheck": "tsc --noEmit",
     "quip:cache": "node pipeline/generate-quip-cache.mjs",
     "onramp:cache": "node pipeline/generate-book-on-ramps.mjs"
   },
   "dependencies": {
+    "@expo-google-fonts/material-symbols-outlined": "^0.4.66",
     "@expo-google-fonts/newsreader": "^0.4.1",
+    "@expo-google-fonts/public-sans": "^0.4.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@shopify/flash-list": "2.0.2",
     "@supabase/supabase-js": "^2.119.0",

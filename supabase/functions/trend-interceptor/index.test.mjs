@@ -45,9 +45,11 @@ function setup(t, options = {}) {
     const filter = url.searchParams.get(url.pathname.endsWith('user_swipes') ? 'book_id' : 'id');
     const ids = filter ? JSON.parse(`[${filter.slice(4, -1)}]`) : BOOKS.map((book) => book.id);
     if (url.pathname === '/rest/v1/user_swipes') {
-      assert.equal(url.searchParams.get('state'), 'eq.read');
+      const stateFilter = url.searchParams.get('state');
+      assert.equal(stateFilter, url.searchParams.has('quip_enabled') ? 'eq.read' : 'in.(read,tbr)');
       assert.ok(url.searchParams.get('quip_enabled') === null || url.searchParams.get('quip_enabled') === 'eq.true');
       return Response.json(ids.filter((id) => (options.eligible ?? BOOKS.map((book) => book.id)).includes(id))
+        .filter((id) => (stateFilter === 'eq.read' ? ['read'] : ['read', 'tbr']).includes(options.states?.[id] ?? 'read'))
         .map((book_id) => ({ book_id })));
     }
     if (url.pathname === '/rest/v1/books') return Response.json(BOOKS.filter((book) => ids.includes(book.id)));
@@ -93,6 +95,7 @@ test('single-book defaults generate one reply without relevance and only submit 
   }]);
   assert.match(body.messages[0].content, /1 to 2 sentences and at most 280 characters/);
   assert.match(body.messages[0].content, /Do not assess book relevance/);
+  assert.match(body.messages[0].content, /Never imply that the user has read, finished, or personally learned from it/);
   assert.equal(body.max_tokens, 240);
   assert.equal(calls.length, 3);
 });
@@ -107,6 +110,18 @@ test('single-book rejects whole-library, missing, duplicate and incompatible inp
     assert.equal((await handler(singleBookRequest(overrides))).status, 400, JSON.stringify(overrides));
   }
   assert.equal(calls.length, 0);
+});
+
+test('single-book accepts a 280-character seed and rejects longer seeds without changing legacy limits', async (t) => {
+  const calls = setup(t, { content: () => JSON.stringify({ reply: REPLY }) });
+  assert.equal((await handler(singleBookRequest({ trendText: 'x'.repeat(280) }))).status, 200);
+  const beforeRejection = calls.length;
+  const response = await handler(singleBookRequest({ trendText: 'x'.repeat(281) }));
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /280/);
+  assert.equal(calls.length, beforeRejection);
+  assert.equal((await handler(request({ trendText: 'x'.repeat(2000), bookIds: ['a'], includeRelevance: undefined }))).status, 200);
+  assert.equal((await handler(request({ trendText: 'x'.repeat(2001) }))).status, 400);
 });
 
 test('every current style and stance uses the 280-character limit without relevance', async (t) => {
@@ -161,23 +176,50 @@ test('single-book seed generation sends no existing seed and uses only one confi
   assert.equal((await handler(ideaRequest({ workflow: 'single-book' }))).status, 400);
 });
 
-test('a book outside Finished, including a To read book, prevents single-book generation', async (t) => {
+test('a book outside the caller’s eligible shelves prevents single-book generation', async (t) => {
   const calls = setup(t, { eligible: ['b'] });
   assert.equal((await handler(singleBookRequest())).status, 403);
   assert.equal(calls.length, 1);
 });
 
-test('custom Quips accept all Finished books without the legacy Quip toggle', async (t) => {
+test('custom Quips accept Finished books without the legacy Quip toggle', async (t) => {
   const calls = setup(t, { content: () => JSON.stringify({ reply: REPLY }) });
   assert.equal((await handler(singleBookRequest())).status, 200);
-  assert.equal(calls[0].url.searchParams.get('state'), 'eq.read');
+  assert.equal(calls[0].url.searchParams.get('state'), 'in.(read,tbr)');
   assert.equal(calls[0].url.searchParams.get('quip_enabled'), null);
+});
+
+test('custom Quips accept a To read book using only its supplied summary', async (t) => {
+  const calls = setup(t, { states: { a: 'tbr' }, content: () => JSON.stringify({ reply: REPLY }) });
+  const response = await handler(singleBookRequest());
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { reply: REPLY });
+  assert.equal(calls[0].url.searchParams.get('state'), 'in.(read,tbr)');
+  assert.equal(calls[0].url.searchParams.get('quip_enabled'), null);
+  assert.deepEqual(JSON.parse(JSON.parse(calls.at(-1).init.body).messages[1].content).ideas, [{
+    bookId: 'a', title: 'Book A', author: 'Author A', shortTake: BOOKS[0].note,
+  }]);
+});
+
+test('a snoozed book cannot be used for custom Quips', async (t) => {
+  const calls = setup(t, { states: { a: 'frozen' } });
+  const response = await handler(singleBookRequest());
+  assert.equal(response.status, 403);
+  assert.match((await response.json()).error, /To read or Finished/);
+  assert.equal(calls.length, 1);
 });
 
 test('legacy workflows retain the Quip-enabled shelf filter', async (t) => {
   const calls = setup(t);
   assert.equal((await handler(request())).status, 200);
   assert.equal(calls[0].url.searchParams.get('quip_enabled'), 'eq.true');
+  assert.equal(calls[0].url.searchParams.get('state'), 'eq.read');
+});
+
+test('legacy workflows still reject To read books', async (t) => {
+  const calls = setup(t, { states: { a: 'tbr' } });
+  assert.equal((await handler(request({ bookIds: ['a'] }))).status, 403);
+  assert.equal(calls.length, 1);
 });
 
 test('book ideas use only selected eligible book summaries, without sending the existing seed or trend', async (t) => {

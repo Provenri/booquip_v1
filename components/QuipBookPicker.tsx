@@ -26,7 +26,7 @@ export default function QuipBookPicker({ books, readBookIds, selectedId, onSelec
               <X color={colors.secondary} size={20} />
             </Pressable>
           </View>
-          <Text style={styles.hint}>Choose from To read or Finished. Only Finished books allow custom crafting.</Text>
+          <Text style={styles.hint}>Choose from To read or Finished.</Text>
           <FlashList
             data={books}
             keyExtractor={(book) => book.id}
@@ -40,7 +40,7 @@ export default function QuipBookPicker({ books, readBookIds, selectedId, onSelec
                 style={styles.row}
               >
                 <BookListCard book={item} selected={item.id === selectedId}
-                  annotation={<Text style={styles.shelf}>{readBookIds.includes(item.id) ? 'Finished · Ready-made + custom' : 'To read · Ready-made'}</Text>}>
+                  annotation={<Text style={styles.shelf}>{readBookIds.includes(item.id) ? 'Finished' : 'To read'}</Text>}>
                   {item.id === selectedId ? <Check color={colors.brand} size={20} /> : null}
                 </BookListCard>
               </Pressable>
