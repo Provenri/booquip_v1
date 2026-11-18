@@ -15,3 +15,13 @@ export function quipInputsMatch(previous: QuipDraftInputs | null, current: QuipD
   const currentIds = new Set(current.bookIds);
   return previousIds.size === currentIds.size && [...currentIds].every((id) => previousIds.has(id));
 }
+
+export function quipRefinementStatus(
+  seed: string,
+  variant: { book_id: string; reply: string },
+  selectedBookId: string | null,
+  canCraft: boolean,
+): 'unavailable' | 'confirm' | 'ready' {
+  if (!canCraft || !selectedBookId || variant.book_id !== selectedBookId || !variant.reply.trim()) return 'unavailable';
+  return seed && seed !== variant.reply ? 'confirm' : 'ready';
+}

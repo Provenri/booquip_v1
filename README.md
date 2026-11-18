@@ -9,16 +9,16 @@
 ## Product Experience
 
 ### Your Library
-The app opens on **Book**. Tap the booquip logo to open the **Your Library** hub with its **Book** and **Quip** sections.
+The app opens on **Book**. Tap the book logo in the header to open the **Your Library** hub with its **Book** and **Quip** sections.
 
 ### Book
-Book discovery has three top-level categories: **Screen**, **Charts**, and **Classics**. Screen is selected initially; search finds available titles in the selected category and Surprise Me chooses from all categories. Touch the cover, title, or author to reveal the directions: swipe left for the next book or right to move the book to **To read**. While touching the cover, a compact hint explains that double-tapping marks it **Already read**. Screen readers can access all three book actions. The separate **Snooze** and **Already read** buttons remain available. Completed actions provide haptic feedback on supported devices.
+Book discovery has three top-level categories: **Screen**, **Charts**, and **Classics**, with icon filter pills, live availability in their accessibility labels, and an overall available total in the header search placeholder. The category and current position within its available books appear above the discovery card. Screen is selected initially; search finds available titles in the selected category and the sparkle button chooses a surprise from all categories. The compact guide shows swipe left for next, swipe right to save, and double-tap for finished. Touch the cover, title, or author to reveal the arrows. Screen readers can access all three book actions; web keyboard shortcuts are Left for next, Right to save, and Up for finished. The two visible action buttons are **Snooze** and **30s Read**; snoozing lasts 90 days. Completed actions provide haptic feedback on supported devices.
 
-Mobile navigation uses **Book**, **Quip**, **To read**, **Finished**, and **Snoozed** tabs. Book headings use the bundled Newsreader font; counts, covers, and adaptation details come from the real catalog and shelves.
+Mobile navigation uses **Book**, **Quip**, **Shelf**, and **Account** tabs. Shelf contains **To read**, **Finished**, and **Snoozed** filters with live counts; Account opens the existing account panel without replacing the current screen. Desktop retains its navigation rail. Compact headers show **Discover** with search or **Quip** with **Shape a thought**. The design uses warm ivory surfaces, forest-green accents, bundled Newsreader headings, and Public Sans interface text. Counts, covers, and adaptation details come from the real catalog and shelves.
 
 Discovery preloads the next book's cover, including hosted Supabase covers. Covers use Expo Image's memory and disk cache on native devices; web caching follows the browser and image server's cache rules. Hosted covers use content-hashed URLs, so replacements get fresh cache entries without clearing cached images. Image recycling and failure states follow the cover URL rather than the book ID, so a failed old image does not hide its replacement. Adding Expo Image requires a new development or preview build.
 
-Taglines and keywords sit directly below the author, with category details above the action buttons. While touching or dragging the book, **Next book** and **Move to shelf** hints appear beside the cover at its vertical midpoint without covering it. The hints are not buttons; they move and leave with the book during a swipe, and hide when a touch ends without a swipe. Book changes use a quick fade-in without an extra waiting period. Tap **30s read** to load a saved AI-generated on-ramp based on the book's short catalog summary; tap again to hide or show it. Loading shows a spinner, and a missing read is reported without making an AI request. Shelf-saving delays show a spinner and **Waiting…** on the active **Snooze** or **Already read** button. Duplicate requests are blocked, changing books cancels the old request, and a stalled request shows a retryable error after 30 seconds.
+Taglines and keywords sit in an inset editorial panel below the author and publication year, with chart signals or screen adaptation details above the action buttons. The first adaptation is visible when available; expand the panel to see additional adaptations. While touching or dragging the book, non-interactive arrow hints appear at the cover's midpoint and fade on release. Book changes use a quick fade-in without an extra waiting period. Tap **30s read** to load a saved AI-generated on-ramp based on the book's short catalog summary; tap again to hide or show it. Loading shows a spinner, and a missing read is reported without making an AI request. Shelf-saving delays show a spinner and **Waiting…** on **Snooze**, or a **Marking as finished…** status below the actions. Duplicate requests are blocked, changing books cancels the old request, and a stalled request shows a retryable error after 30 seconds.
 
 After applying the 30s-read cache migration, generate reads from a trusted admin environment with server-only `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `OPENAI_API_KEY`. Run `npm run onramp:cache -- --limit 5` to review a small batch, `npm run onramp:cache -- --book-id dune` for a specific book, or `npm run onramp:cache` for the whole catalog. Add `--force` to regenerate current entries. `OPENAI_BOOK_ON_RAMP_MODEL` optionally selects the model and defaults to `gpt-4o-mini`. Generation makes one OpenAI request per uncached book; failures are reported and make the command exit nonzero. The source title, author, publication year, and summary are checked before saving; edits invalidate cached reads. Bump `BOOK_ON_RAMP_CACHE_VERSION` when the prompt or output contract changes, and rerun the batch after catalog changes. Keep credentials outside the app and repository. Existing installed builds still call the original `book-on-ramp` function and may incur AI costs until updated.
 
@@ -31,21 +31,23 @@ Pull down on Book, Quip, Library, or any shelf page to reload catalog metadata, 
 Screen books remain active. Former Civilization/Digital titles are archived rather than deleted, preserving existing TBR, Read, and snooze records while removing them from new discovery. Category availability follows the loaded catalog.
 
 ### Quip
-Quip starts with **one book from To read or Finished**. Swipe right on a shelf book or tap **Quip** to open the workspace with that book selected; it stays on its shelf. **Change book** opens a virtualized picker covering both shelves and identifies each book's available actions. Opening Quip directly lets users choose a book. A left swipe or **Return** removes a book from the shelf and offers **Undo** to restore its shelf and previous legacy Quip setting. Horizontal gestures ignore vertical scrolling; visible buttons provide alternatives to swiping. Snoozed books retain their existing Wake action.
+Quip starts with **one book from To read or Finished**. Swipe right on a shelf book or tap **Quip** to open the workspace with that book selected; it stays on its shelf. Tapping the selected-book card opens a virtualized picker covering both shelves, with **To read** or **Finished** labels and no per-book Quip eligibility text. Opening Quip directly lets users choose a book. A left swipe or **Return** removes a book from the shelf and offers **Undo** to restore its shelf and previous legacy Quip setting. Horizontal gestures ignore vertical scrolling; visible buttons provide alternatives to swiping. Snoozed books retain their existing Wake action.
 
-After selecting a book, choose **Explore ready-made Quips** or **Craft a Quip**. Both shelves allow ready-made drafts; crafting is available only for Finished books and is checked again by the backend. The old Quip on/off switch is no longer needed in the new UI; older multi-book clients retain their Quip-enabled shelf filter.
+The selected-book card shows the author and publication year (when available), plus a cached cover thumbnail, using the catalog cover or ISBN-based cover when available, and a book icon if the image is missing or fails to load. Tap anywhere on the card to open the book picker; its screen-reader label announces **Change book** and the current title and author.
 
-**Craft a Quip** reveals an idea box with the placeholder “Share a thought or paste a post. Bring this book’s perspective to the conversation.” The placeholder is not submitted as content. The new journey does not include Idea, Trends, Screenshot, or Suggest a book. Check the initially unchecked **I agree to send Quip inputs to OpenAI** checkbox, then tap **Generate Quip**. The idea and selected book's metadata/summary are sent via Supabase; the model does not read the full book. Consent lasts only while the workspace remains mounted and resets when changing books. Remove private or sensitive information before submitting. Nothing is published automatically.
+After selecting a book, **Explore ready-made Quips** opens by default; switch to **Craft a Quip** to write a custom draft. Both shelves allow ready-made drafts and custom crafting; the backend verifies the selected book belongs to the caller's To read or Finished shelf. The old Quip on/off switch is no longer needed in the new UI; older multi-book clients retain their Quip-enabled shelf filter.
 
-Crafting offers **Stance** (Pro, Neutral, Cons) and **Style** (Neutral, Curious, Witty), defaulting to Neutral for both. The Neutral style keeps the internal `natural` value. Quips request 1–2 sentences and are capped at **280 characters**, enforced by the backend, response parser, and editor. Selecting a different book switches immediately and clears the current idea and draft, resets the selected path and preferences, and unchecks consent. Selecting the current book or closing the picker leaves the workspace unchanged. Custom drafts are marked stale when their inputs change. Inputs are locked during generation, and stale or unfinished responses are not presented as new drafts.
+**Craft a Quip** reveals an idea box with the placeholder “Share a thought or paste a post. Bring this book’s perspective to the conversation.” The placeholder is not submitted as content. The thought is limited to 280 characters in the app and single-book backend. The new journey does not include Idea, Trends, Screenshot, or Suggest a book. Check the initially unchecked **I agree to send Quip inputs to OpenAI** checkbox, then tap **Generate Quip**. The idea and selected book's metadata/summary are sent via Supabase; the model does not read the full book. Consent lasts only while the workspace remains mounted and resets when changing books or refining a ready-made Quip. Remove private or sensitive information before submitting. Nothing is published automatically.
 
-The selected book's cache loads in the background so its topic and explanation remain in the book card while the user moves between Quip paths. Only the selected book's cache is loaded; it contains up to nine drafts. **Explore ready-made Quips** lets users choose a **Stance** (Pro, Neutral, Cons) and **Style** (Neutral, Curious, Witty) to preview one saved version at a time. The selected values remain visible in the controls, outside the Quip preview. Choose **Edit this Quip** to load it into the editor or **Copy as-is** to copy the saved text directly without replacing the editor. Replacing an existing draft requires confirmation. These are pre-generated alternatives, not controls that trigger generation, and no user idea is sent to OpenAI. Missing caches and load errors have explicit messages and retry. Loaded drafts are reused in memory while the workspace remains mounted; refresh clears that cache. Shelf pages do not load Quip drafts.
+Crafting offers **Stance** (Pro, Neutral, Cons) and **Style** (Neutral, Curious, Witty), defaulting to Neutral for both. The Neutral style keeps the internal `natural` value. Quips request 1–2 sentences and are capped at **280 characters**, enforced by the backend, response parser, and editor. Selecting a different book switches immediately and clears the current idea and draft, returns to Explore, resets preferences, and unchecks consent. Selecting the current book or closing the picker leaves the workspace unchanged. Custom drafts are marked stale when their inputs change. Inputs are locked during generation, and stale or unfinished responses are not presented as new drafts.
+
+The selected book's cache loads in the background. When available, its topic and explanation appear in a light-green **Book summary** panel directly below the selected book card, collapsed by default. Tap to expand or collapse it in either Quip path; selecting a different book collapses it again. Only the selected book's cache is loaded; it contains up to nine drafts. **Explore ready-made Quips** lets users choose a **Stance** (Pro, Neutral, Cons) and **Style** (Neutral, Curious, Witty) to preview one saved version at a time. **Copy as-is** copies the saved text without replacing the editor. For books on either shelf, **Refine in Craft** puts the saved text into the thought field and switches to Craft; replacing a different existing thought requires confirmation and consent must be given again before generating. These are pre-generated alternatives, not controls that trigger generation, and no user idea is sent to OpenAI until crafting is requested with consent. Missing caches and load errors have explicit messages and retry. Loaded drafts are reused in memory while the workspace remains mounted; refresh clears that cache. Shelf pages do not load Quip drafts.
 
 Generate or refresh the shared cache only from a trusted backend/admin environment after applying the Quip-cache migration. Set server-only `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `OPENAI_API_KEY`, then run `npm run quip:cache -- --book-id dune` to generate one book or `npm run quip:cache -- --limit 5` for up to five catalog books. Add `--force` to regenerate matching entries. `OPENAI_QUIP_CACHE_MODEL` optionally selects the batch model; it defaults to `gpt-4o-mini`. The generator validates the full nine-variant matrix before upserting, skips complete current caches, and reports failures with a nonzero exit status. Never put these credentials in the app or repository. Changes to a book title, author, or summary automatically invalidate its cached variants; prompt changes require bumping `QUIP_CACHE_PROMPT_VERSION`.
 
 Crafting shows **Crafting…** during generation. Duplicate submissions and conflicting inputs are disabled while unrelated navigation stays available. Generation has a 60-second client deadline and cache loading a 15-second deadline, including stalled transports, with explicit retryable errors.
 
-**Deployment:** apply the Quip-cache migration and deploy `supabase functions deploy trend-interceptor` before distributing the updated app. New clients send `workflow: "single-book"` with exactly one Finished book ID. This workflow no longer requires `quip_enabled`, but still rejects books outside Finished, unsupported styles, and relevance options, returning only `{ "reply": "..." }`. Requests without the workflow field retain existing multi-book, relevance, style, and length behaviour and the legacy Quip-enabled filter. No new dependency is required. Ready-made Quips remain unavailable until the trusted batch generator is run; crafting does not depend on cache entries.
+**Deployment:** apply the Quip-cache migration and deploy `supabase functions deploy trend-interceptor` before distributing the updated app. New clients send `workflow: "single-book"` with exactly one To read or Finished book ID and a thought of at most 280 characters. This workflow no longer requires `quip_enabled`, but still rejects books outside the caller's To read and Finished shelves, unsupported styles, and relevance options, returning only `{ "reply": "..." }`. Its prompt uses only supplied metadata/summary and prohibits implying the user has read or finished the book. Requests without the workflow field retain existing multi-book, relevance, style, and length behaviour and the legacy Quip-enabled filter. Ready-made Quips remain unavailable until the trusted batch generator is run; crafting does not depend on cache entries.
 
 ## 🔐 Authentication & User Management (Supabase Auth)
 
@@ -69,7 +71,7 @@ The Expo SDK 54 app uses Reanimated and Gesture Handler for native swipe and pre
 ## 🛠️ Technical Stack (Windows + Cloud Workflow)
 
 * **Universal Frontend (iOS, Android, & Web):** React Native + Expo + Expo Router (TypeScript)
-* **Live Mobile Testing:** Expo development or preview builds (iOS/Android); FlashList 2 requires a native build rather than Expo Go
+* **Live Mobile Development:** Expo development builds (iOS/Android); preview builds are for standalone QA, and FlashList 2 requires a native build rather than Expo Go
 * **Web Hosting & CDN:** Vercel (Free Tier — auto-deploys static Expo Web builds from GitHub)
 * **Mobile Store Compiles:** Expo Application Services (EAS Build — compiles iOS `.ipa` and Android `.aab` without a Mac)
 * **Backend, Auth & Database:** Supabase (PostgreSQL, Auth, Edge Functions, Storage)
@@ -110,18 +112,26 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 Keep OpenAI, TMDb, and service-role credentials in trusted admin environments or Supabase Function secrets, not the app configuration.
 
 ### 3. Install Dependencies & Run Dev Servers
-Run the following commands inside your Codespaces terminal:
+Run the following commands inside your Codespaces terminal. Native development
+requires an installed EAS development build; build it once using the
+`development` profile below, then connect it to Metro:
 
 ```bash
 # Install universal frontend packages
 npm install
 
-# Option A: Start Mobile Dev Server with tunnel mode (Codespaces -> Physical Phone via development build)
-npx expo start --tunnel
+# Start the native development server (Codespaces -> physical phone)
+npm run dev:tunnel
 
-# Option B: Start Web Dev Server (Preview in Codespaces browser port 8081)
-npx expo start --web
+# Start the web dev server
+npm run web
 ```
+
+JavaScript and TypeScript changes load through Metro without another EAS build.
+Rebuild the development client after changing native dependencies, Expo plugins,
+app configuration, or the Expo SDK. Use `npm run dev` instead of
+`npm run dev:tunnel` when the device can reach the computer over the local
+network without a tunnel.
 ---
 
 ## ☁️ Deployment (Web, App Store & Google Play from Windows)
@@ -138,16 +148,23 @@ Android and iOS use the application identifier `app.booquip.mobile` and the
 final icons, splash assets, store screenshots, and privacy/support URLs are
 still required before a public release.
 
+For day-to-day native development, use the `development` profile rather than
+rebuilding preview or production binaries. Install the development build on
+your device and run `npm run dev:tunnel` to load the app from Metro. The
+development build is a native client, not a deployed app; it does not replace
+the preview or production profiles.
+
 ```bash
 # Sign in and create/link this repository's Expo project (once)
 npx eas-cli login
 npx eas-cli init
 
-# Installable Android APK: runs standalone without a development server
-npx eas-cli build --platform android --profile preview
-
-# Development clients: connect to Metro with npm run dev
+# Development clients: install once, then connect to Metro with npm run dev:tunnel
 npx eas-cli build --platform android --profile development
+npx eas-cli build --platform ios --profile development
+
+# Installable Android APK for standalone QA; runs without a development server
+npx eas-cli build --platform android --profile preview
 
 # Store builds: Android AAB and iOS TestFlight/App Store binary
 npx eas-cli build --platform all --profile production
@@ -160,8 +177,9 @@ never supply service-role keys, OpenAI keys, or `CHART_SYNC_SECRET` to the app.
 Local `.env` files are git-ignored and excluded from the default EAS upload.
 
 The `preview` profile produces an Android APK for direct installation.
-An iOS internal preview requires an Apple Developer membership and registered
-devices (register with `npx eas-cli device:create` before building).
+Internal iOS development and preview builds require an Apple Developer
+membership and registered devices (register with `npx eas-cli device:create`
+before building).
 The `production` profile increments build versions remotely. TestFlight requires
 an Apple Developer membership, signing credentials, and an App Store Connect app;
 Google Play distribution requires a Play Console account.

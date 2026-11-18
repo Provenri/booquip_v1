@@ -1,0 +1,35 @@
+For a zero- or low-cost startup setup serving English-language books across the EU and UK, you can build a completely legal, copyright-safe architecture by separating factual metadata from licensed cover images.
+Here is the practical three-tier blueprint that keeps infrastructure costs near zero while avoiding UK and EU copyright liability.
+________________________________________
+Tier 1: Core Factual Catalog (Cost: €0)
+Use Open Library's Bulk Data Dumps (or live JSON API) filtered strictly for English editions and non-copyrightable facts.
+•	What to Ingest: Filter records where languages equals /languages/eng and keep only factual bibliographic fields:
+o	isbn_13 / isbn_10
+o	title & subtitle
+o	authors (linked via author keys to author name)
+o	publishers & publish_date
+o	number_of_pages & subjects
+•	What to Strip Out: Drop description, first_sentence, bio, and covers URLs during import so you never accidentally store copyrighted publisher blurbs or unlicensed user-uploaded cover art.
+•	Hosting Cost: The filtered English factual dataset fits comfortably in a free/low-cost PostgreSQL, SQLite, or Typesense/Meilisearch instance (under ~2–4 GB once stripped of non-English records and unused JSON fields).
+________________________________________
+Tier 2: Licensed Cover Images via Affiliate APIs (Cost: €0)
+To display real publisher cover art legally in the UK and EU without paying thousands for Nielsen BookData, use retail affiliate APIs. Their developer agreements explicitly grant you a license to display cover artwork on your app or website.
+•	Apple Books Search API (Easiest to Start)
+o	Why it works: Requires no upfront approval or API key for basic lookups (https://apple.com). Returns high-resolution cover artwork (artworkUrl100 / artworkUrl512) and an affiliate-ready store link.
+o	Caveat: Covers e-books and audiobooks available on Apple Books (which covers most mainstream English titles), though it misses print-only editions.
+•	Amazon Product Advertising API (PA-API 5.0) – UK & EU
+o	Why it works: Covers virtually every English print and digital ISBN in the UK (amazon.co.uk) and EU (amazon.de, amazon.fr, etc.).
+o	Compliance Rules: Free to use, but you must generate at least 3 qualifying affiliate sales within your first 180 days to keep API access active, display an Amazon affiliate disclosure, and never cache cover images on your servers for more than 24 hours (load them directly from Amazon's CDN URLs).
+•	Bookshop.org UK / Awin Affiliate Feeds
+o	Why it works: Great ethical alternative for UK/EU audiences; provides product data feeds with cleared cover URLs via affiliate networks like Awin or Rakuten.
+________________________________________
+Tier 3: Deterministic Typographic Covers (Cost: €0)
+Whenever an older, academic, or niche English ISBN isn't returned by Apple Books or Amazon, render a clean typographic cover in your frontend (CSS/HTML or SVG).
+•	Zero Broken Images: Every book in your app looks intentional and polished.
+•	Zero Legal Risk: Uses only the factual title, author, and ISBN from Tier 1.
+________________________________________
+Summary Checklist for EU & UK Launch Compliance
+•	No Self-Hosted Cover Scraping: Never download or re-host cover images from Open Library, Google Books, or Goodreads on your own S3 bucket or CDN.
+•	Include Affiliate Disclosures & Impressum: If using Amazon PA-API or Apple Books links, include the required affiliate disclosure text alongside your German/EU Impressum and privacy policy (GDPR/DSGVO).
+•	Add a Takedown Contact: Provide a clear copyright email in your legal notice so any publisher can contact you immediately if needed.
+

@@ -1,6 +1,6 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { isRecord, parseSingleBookQuip, type QuipStance, type SingleBookQuipStyle } from '@/supabase/functions/_shared/quip';
+import { isRecord, parseSingleBookQuip, QUIP_SEED_LIMIT, type QuipStance, type SingleBookQuipStyle } from '@/supabase/functions/_shared/quip';
 import { withAiTimeout } from '@/lib/aiRequest';
 
 export type QuipGenerationOptions = { stance: QuipStance; style: SingleBookQuipStyle; signal?: AbortSignal };
@@ -14,6 +14,7 @@ export async function generateTrendReply(
   if (!supabase) throw new Error('Connect Supabase to draft a trend reply.');
   const client = supabase;
   if (bookIds.length !== 1) throw new Error('Select exactly one book to generate a Quip.');
+  if (!trendText.trim() || trendText.length > QUIP_SEED_LIMIT) throw new Error(`Enter a thought of at most ${QUIP_SEED_LIMIT} characters.`);
 
   return withAiTimeout(async (requestSignal) => {
     const { data, error } = await client.functions.invoke('trend-interceptor', {

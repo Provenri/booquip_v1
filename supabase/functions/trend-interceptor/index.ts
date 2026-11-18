@@ -1,5 +1,5 @@
 // @ts-ignore Deno requires explicit TypeScript extensions.
-import { isQuipStance, isQuipStyle, isRecord, parseQuipIdea, parseQuipResult, parseSingleBookQuip, isSingleBookQuipStyle } from '../_shared/quip.ts';
+import { isQuipStance, isQuipStyle, isRecord, parseQuipIdea, parseQuipResult, parseSingleBookQuip, isSingleBookQuipStyle, QUIP_SEED_LIMIT } from '../_shared/quip.ts';
 // @ts-ignore Deno requires explicit TypeScript extensions.
 import { buildQuipPrompt, buildSingleBookQuipPrompt, LEGACY_QUIP_PROMPT, QUIP_IDEA_PROMPT, SINGLE_BOOK_IDEA_PROMPT } from './prompt.ts';
 
@@ -54,10 +54,10 @@ edgeRuntime.serve(async (request: Request) => {
     return jsonResponse(400, { error: 'Idea generation accepts selected books only.' });
   }
   if (!isIdea && (
-    typeof payload.trendText !== 'string' || payload.trendText.trim().length < 1 || payload.trendText.length > 2000 ||
+    typeof payload.trendText !== 'string' || payload.trendText.trim().length < 1 || payload.trendText.length > (singleBook ? QUIP_SEED_LIMIT : 2000) ||
     (payload.trendTopicId !== undefined && (typeof payload.trendTopicId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.trendTopicId)))
   )) {
-    return jsonResponse(400, { error: 'Pasted text is invalid.' });
+    return jsonResponse(400, { error: singleBook ? `Enter a thought of at most ${QUIP_SEED_LIMIT} characters.` : 'Pasted text is invalid.' });
   }
   if (payload.bookIds !== undefined && (
     !Array.isArray(payload.bookIds) || payload.bookIds.length < 1 || payload.bookIds.length > 200 ||
@@ -94,26 +94,26 @@ edgeRuntime.serve(async (request: Request) => {
   try {
     const swipesUrl = new URL('/rest/v1/user_swipes', supabaseUrl);
     swipesUrl.searchParams.set('select', 'book_id');
-    swipesUrl.searchParams.set('state', 'eq.read');
+    swipesUrl.searchParams.set('state', singleBook ? 'in.(read,tbr)' : 'eq.read');
     if (!singleBook) swipesUrl.searchParams.set('quip_enabled', 'eq.true');
     if (requestedBookIds) {
       swipesUrl.searchParams.set('book_id', `in.(${requestedBookIds.map((bookId) => JSON.stringify(bookId)).join(',')})`);
     }
     const swipeResponse = await fetch(swipesUrl, { headers });
-    if (!swipeResponse.ok) return jsonResponse(502, { error: 'Could not verify the book on your Read shelf.' });
+    if (!swipeResponse.ok) return jsonResponse(502, { error: singleBook ? 'Could not verify the book on your To read or Finished shelf.' : 'Could not verify the book on your Read shelf.' });
     const swipes: unknown = await swipeResponse.json();
     if (!Array.isArray(swipes) || !swipes.every((swipe) => isRecord(swipe) && typeof swipe.book_id === 'string')) {
-      return jsonResponse(502, { error: 'Could not verify the selected Read books.' });
+      return jsonResponse(502, { error: singleBook ? 'Could not verify the selected shelf book.' : 'Could not verify the selected Read books.' });
     }
     if (swipes.length === 0) {
       return jsonResponse(403, { error: singleBook
-        ? 'Custom Quips require a book on your Finished shelf.'
+        ? 'Custom Quips require a book on your To read or Finished shelf.'
         : 'Turn Quip on for a Read book before drafting a reply.' });
     }
     const bookIds = swipes.map((swipe: { book_id: string }) => swipe.book_id);
     if (requestedBookIds && (bookIds.length !== requestedBookIds.length || requestedBookIds.some((id) => !bookIds.includes(id)))) {
       return jsonResponse(409, { error: singleBook
-        ? 'The selected book is no longer on your Finished shelf. Refresh and try again.'
+        ? 'The selected book is no longer on your To read or Finished shelf. Refresh and try again.'
         : 'Some selected books are no longer Quip-enabled on your Read shelf. Refresh and try again.' });
     }
 
@@ -128,11 +128,11 @@ edgeRuntime.serve(async (request: Request) => {
       isRecord(book) && typeof book.id === 'string' && typeof book.title === 'string' &&
       typeof book.author === 'string' && typeof book.note === 'string' &&
       (typeof book.published_year === 'number' || book.published_year === null)
-    )) return jsonResponse(502, { error: 'Some Read-shelf book details were invalid.' });
+    )) return jsonResponse(502, { error: singleBook ? 'The selected shelf book details were invalid.' : 'Some Read-shelf book details were invalid.' });
     const books = bookData;
     if (books.length !== bookIds.length || new Set(books.map((book) => book.id)).size !== bookIds.length ||
       books.some((book) => !bookIds.includes(book.id))) {
-      return jsonResponse(404, { error: 'Some Read-shelf book details were not found.' });
+      return jsonResponse(404, { error: singleBook ? 'The selected shelf book details were not found.' : 'Some Read-shelf book details were not found.' });
     }
 
     let selectedTrend: Record<string, unknown> | null = null;
