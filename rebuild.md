@@ -39,6 +39,45 @@ provider terms and obtain legal advice where needed.
   cache limits, and takedown/contact process with the integration that requires
   it. Do not assume a provider grants rights merely because its API is public.
 
+## Data-source selection and approval
+
+Treat sources mentioned in `Rewrite.txt` or elsewhere as candidates to evaluate,
+not as approved providers or proof that a use is permitted. Start with a narrow
+catalog and do not make third-party cover art or external chart rankings a
+launch dependency.
+
+- **Catalog metadata:** Evaluate a bulk source such as an Open Library data
+  dump for a minimal set of factual bibliographic fields. Review the dump's
+  provenance and current reuse terms for the intended use, including applicable
+  database rights in the EU and UK. Do not assume that public API access or a
+  downloadable dump clears every record or downstream use. Prefer bulk data
+  access over frequent API requests when the provider's API is not intended as
+  a production backend.
+- **Candidate discovery:** Structured sources such as Wikidata may help find
+  candidate book and adaptation facts. Verify important claims and preserve
+  their source provenance before they appear in the catalog; do not treat a
+  candidate listing as verification of its accuracy or of third-party rights.
+- **Covers:** Use original typographic covers as the default. Evaluate Apple,
+  Amazon, affiliate feeds, and image repositories separately against the exact
+  planned display, linking, attribution, cache, and territory requirements.
+  A product feed or affiliate relationship alone is not blanket permission to
+  use its images. Do not ship a cover integration while any material permission
+  or obligation remains unclear.
+- **Charts:** Defer third-party rankings unless a source's current terms and
+  applicable rights clearly permit collection, display, and retention. Prefer
+  a ranking BooQuip can derive from its own appropriately collected product
+  data, or revise or omit the category.
+- **Classics and adaptations:** Treat source matches as candidates for editorial
+  verification. Check public-domain status for the specific work, edition, or
+  translation and intended territory; do not infer it from age or category.
+
+Before approving each source, record its owner and access method, the exact
+fields or assets used, provenance, applicable license or terms, intended product
+use and territories, attribution and linking rules, caching and retention
+limits, database-rights considerations, and any removal or contact process.
+Exclude the source or affected material if a requirement cannot be established.
+Recheck terms when the integration or provider changes.
+
 ## Categories
 
 Keep **Screen**, **Charts**, and **Classics** as candidate product categories;
